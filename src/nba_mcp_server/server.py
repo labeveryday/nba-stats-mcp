@@ -33,9 +33,8 @@ from datetime import datetime
 from typing import Any, Optional
 
 import httpx
-import mcp.server.stdio
-from mcp.server import Server
-from mcp.types import TextContent, Tool
+from mcp.server.fastmcp import FastMCP
+from mcp.types import TextContent
 
 # Configure logging - default to WARNING for production, can be overridden with NBA_MCP_LOG_LEVEL
 log_level = os.getenv("NBA_MCP_LOG_LEVEL", "WARNING").upper()
@@ -43,7 +42,7 @@ logging.basicConfig(
     level=getattr(logging, log_level, logging.WARNING),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("nba-mcp-server")
+logger = logging.getLogger("nba-stats-mcp")
 
 # NBA API endpoints
 NBA_LIVE_API = "https://cdn.nba.com/static/json/liveData"
@@ -112,7 +111,7 @@ NBA_HEADERS = {
 }
 
 # Create server instance
-server = Server("nba-stats-server")
+mcp = FastMCP("nba-stats-mcp")
 
 
 # ==================== Runtime Configuration ====================
@@ -585,316 +584,22 @@ def _wrap_tool_result(
 # ==================== Tools ====================
 
 
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    """List all available NBA tools."""
-    return [
-        Tool(
-            name="get_server_info",
-            description="Server version + runtime settings (timeouts, retries, cache, concurrency).",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-        Tool(
-            name="resolve_team_id",
-            description="Resolve team name/city/nickname → team_id.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "limit": {"type": "integer"},
-                },
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="resolve_player_id",
-            description="Resolve player name → player_id (official stats endpoint).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "active_only": {"type": "boolean"},
-                    "limit": {"type": "integer"},
-                },
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="find_game_id",
-            description="Find game_id by date and matchup. If date omitted, finds most recent matchup via schedule.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "date": {"type": "string"},
-                    "home_team": {"type": "string"},
-                    "away_team": {"type": "string"},
-                    "team": {"type": "string"},
-                    "lookback_days": {"type": "integer"},
-                    "limit": {"type": "integer"},
-                },
-            },
-        ),
-        Tool(
-            name="get_todays_scoreboard",
-            description="Today's games.",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-        Tool(
-            name="get_scoreboard_by_date",
-            description="Games for a specific date.",
-            inputSchema={
-                "type": "object",
-                "properties": {"date": {"type": "string"}},
-                "required": ["date"],
-            },
-        ),
-        Tool(
-            name="get_game_details",
-            description="Detailed game info for a specific game_id.",
-            inputSchema={
-                "type": "object",
-                "properties": {"game_id": {"type": "string"}},
-                "required": ["game_id"],
-            },
-        ),
-        Tool(
-            name="get_box_score",
-            description="Full box score for a game_id.",
-            inputSchema={
-                "type": "object",
-                "properties": {"game_id": {"type": "string"}},
-                "required": ["game_id"],
-            },
-        ),
-        # Player tools
-        Tool(
-            name="search_players",
-            description="Search players by name substring.",
-            inputSchema={
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="get_player_info",
-            description="Player bio/profile info.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_player_season_stats",
-            description="Player stats for a season.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_player_game_log",
-            description="Player game log for a season.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_player_career_stats",
-            description="Player career totals/averages.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_player_hustle_stats",
-            description="Player hustle stats.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_league_hustle_leaders",
-            description="League leaders in a hustle stat category.",
-            inputSchema={
-                "type": "object",
-                "properties": {"stat_category": {"type": "string"}, "season": {"type": "string"}},
-            },
-        ),
-        Tool(
-            name="get_player_defense_stats",
-            description="Opponent FG% when defended by player.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_all_time_leaders",
-            description="All-time leaders for a stat category.",
-            inputSchema={
-                "type": "object",
-                "properties": {"stat_category": {"type": "string"}, "limit": {"type": "integer"}},
-            },
-        ),
-        # Team tools
-        Tool(
-            name="get_all_teams",
-            description="All teams.",
-            inputSchema={"type": "object", "properties": {}},
-        ),
-        Tool(
-            name="get_team_roster",
-            description="Team roster.",
-            inputSchema={
-                "type": "object",
-                "properties": {"team_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["team_id"],
-            },
-        ),
-        # League tools
-        Tool(
-            name="get_standings",
-            description="League standings.",
-            inputSchema={"type": "object", "properties": {"season": {"type": "string"}}},
-        ),
-        Tool(
-            name="get_league_leaders",
-            description="Current season per-game league leaders for a stat category (Points/Assists/Rebounds/etc.).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "stat_type": {
-                        "type": "string",
-                        "description": "Stat type like 'Points', 'Assists', 'Rebounds', 'Steals', 'Blocks', 'FG%', '3P%', 'FT%'",
-                    },
-                    "season": {
-                        "type": "string",
-                        "description": "Season in format YYYY-YY (defaults to current season)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Number of leaders to return (default 10, max 50)",
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="get_schedule",
-            description="Team upcoming schedule.",
-            inputSchema={
-                "type": "object",
-                "properties": {"team_id": {"type": "string"}, "days_ahead": {"type": "integer"}},
-                "required": ["team_id"],
-            },
-        ),
-        Tool(
-            name="get_player_awards",
-            description="Player awards/accolades.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_season_awards",
-            description="Major awards for a season.",
-            inputSchema={"type": "object", "properties": {"season": {"type": "string"}}},
-        ),
-        # Shooting
-        Tool(
-            name="get_shot_chart",
-            description="Shot chart data summary.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "player_id": {"type": "string"},
-                    "season": {"type": "string"},
-                    "game_id": {"type": "string"},
-                },
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_shooting_splits",
-            description="Shooting splits summary.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        # Play-by-play / rotation
-        Tool(
-            name="get_play_by_play",
-            description="Play-by-play summary.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "game_id": {"type": "string"},
-                    "start_period": {"type": "integer"},
-                    "end_period": {"type": "integer"},
-                },
-                "required": ["game_id"],
-            },
-        ),
-        Tool(
-            name="get_game_rotation",
-            description="Rotation/substitution summary.",
-            inputSchema={
-                "type": "object",
-                "properties": {"game_id": {"type": "string"}},
-                "required": ["game_id"],
-            },
-        ),
-        # Advanced
-        Tool(
-            name="get_player_advanced_stats",
-            description="Player advanced metrics summary.",
-            inputSchema={
-                "type": "object",
-                "properties": {"player_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["player_id"],
-            },
-        ),
-        Tool(
-            name="get_team_advanced_stats",
-            description="Team advanced metrics summary.",
-            inputSchema={
-                "type": "object",
-                "properties": {"team_id": {"type": "string"}, "season": {"type": "string"}},
-                "required": ["team_id"],
-            },
-        ),
-    ]
+async def _tool_impl(tool_name: str, arguments: dict[str, Any], fn) -> list[TextContent]:
+    """Execute tool logic, wrap result in JSON envelope, handle errors."""
+    try:
+        text = await fn()
+        return _wrap_tool_result(tool_name=tool_name, arguments=arguments, text=text)
+    except Exception as e:
+        logger.error(f"Error in {tool_name}: {e}", exc_info=True)
+        return _wrap_tool_result(
+            tool_name=tool_name, arguments=arguments, error=f"{type(e).__name__}: {e}"
+        )
 
 
-# ==================== Tool Implementation (text generation) ====================
-
-
-async def _call_tool_text(name: str, arguments: Any) -> str:
-    """Legacy computation/formatting (string). JSON wrapper calls this for every tool."""
-    # NOTE: This is intentionally the same behavior as before for correctness,
-    # but the public MCP return is always JSON (see call_tool()).
-
-    # Only implement the key tools for tests + agent workflows here, and return a clear error for others.
-    # In practice, you can expand this progressively (but still JSON-wrapped).
-    #
-    # This keeps the file size manageable in this session.
-
-    if name == "get_server_info":
+@mcp.tool(description="Server version + runtime settings (timeouts, retries, cache, concurrency).")
+async def get_server_info() -> list[TextContent]:
+    async def _impl():
         from nba_mcp_server import __version__
-
         result = "NBA MCP Server Info:\n\n"
         result += f"Version: {__version__}\n"
         result += f"HTTP timeout (s): {NBA_MCP_HTTP_TIMEOUT_SECONDS}\n"
@@ -905,52 +610,60 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
         result += f"TLS verify enabled: {NBA_MCP_TLS_VERIFY}\n"
         result += f"Log level: {log_level}\n"
         return result
+    return await _tool_impl("get_server_info", {}, _impl)
 
-    if name == "get_all_teams":
+
+@mcp.tool(description="All 30 NBA teams with IDs and logos.")
+async def get_all_teams() -> list[TextContent]:
+    async def _impl():
         result = "NBA Teams:\n\n"
-        for team_id, team_name in sorted(NBA_TEAMS.items(), key=lambda x: x[1]):
-            result += f"ID: {team_id} | {team_name} | Logo: {get_team_logo_url(team_id)}\n"
+        for tid, tname in sorted(NBA_TEAMS.items(), key=lambda x: x[1]):
+            result += f"ID: {tid} | {tname} | Logo: {get_team_logo_url(tid)}\n"
         return result
+    return await _tool_impl("get_all_teams", {}, _impl)
 
-    if name == "resolve_team_id":
-        query = str(arguments.get("query", "")).strip().lower()
-        limit = int(arguments.get("limit", 5) or 5)
-        if not query:
+
+@mcp.tool(description="Resolve team name/city/nickname to team_id.")
+async def resolve_team_id(query: str, limit: int = 5) -> list[TextContent]:
+    _args: dict[str, Any] = {"query": query, "limit": limit}
+
+    async def _impl():
+        q = query.strip().lower()
+        if not q:
             return "Please provide a non-empty team query."
-
         scored: list[tuple[float, int, str]] = []
-        for team_id, team_name in NBA_TEAMS.items():
-            name_l = team_name.lower()
-            score = 1.0 if query in name_l else difflib.SequenceMatcher(None, query, name_l).ratio()
-            scored.append((score, team_id, team_name))
+        for tid, tname in NBA_TEAMS.items():
+            name_l = tname.lower()
+            score = 1.0 if q in name_l else difflib.SequenceMatcher(None, q, name_l).ratio()
+            scored.append((score, tid, tname))
         scored.sort(key=lambda x: x[0], reverse=True)
         top = [s for s in scored if s[0] >= 0.3][: max(1, limit)]
         if not top:
-            return f"No teams matched '{arguments.get('query')}'. Try a city or nickname (e.g., 'Boston', 'Lakers')."
-
-        result = f"Team ID matches for '{arguments.get('query')}':\n\n"
-        for score, team_id, team_name in top:
-            result += f"ID: {team_id} | {team_name} (match: {score:.2f}) | Logo: {get_team_logo_url(team_id)}\n"
+            return f"No teams matched '{query}'. Try a city or nickname (e.g., 'Boston', 'Lakers')."
+        result = f"Team ID matches for '{query}':\n\n"
+        for score, tid, tname in top:
+            result += f"ID: {tid} | {tname} (match: {score:.2f}) | Logo: {get_team_logo_url(tid)}\n"
         return result
+    return await _tool_impl("resolve_team_id", _args, _impl)
 
-    if name == "resolve_player_id":
-        query_raw = str(arguments.get("query", "")).strip()
-        query = query_raw.lower()
-        active_only = bool(arguments.get("active_only", False))
-        limit = int(arguments.get("limit", 10) or 10)
+
+@mcp.tool(description="Resolve player name to player_id (official stats endpoint).")
+async def resolve_player_id(query: str, active_only: bool = False, limit: int = 10) -> list[TextContent]:
+    _args: dict[str, Any] = {"query": query, "active_only": active_only, "limit": limit}
+
+    async def _impl():
+        query_raw = query.strip()
+        q = query_raw.lower()
         if not query_raw:
             return "Please provide a non-empty player query."
-
         url = f"{NBA_STATS_API}/commonallplayers"
         params = {"LeagueID": "00", "Season": get_current_season(), "IsOnlyCurrentSeason": "0"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching player data. Please try again."
-
         rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not rows or rows == "N/A":
             return "No player data returned by the NBA API."
-
         matches: list[tuple[float, int, str, int]] = []
         for row in rows:
             player_id = _to_int(row[0] if isinstance(row, list) and row else None)
@@ -961,14 +674,13 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
             if active_only and is_active != 1:
                 continue
             name_l = player_name.lower()
-            score = 1.0 if query in name_l else difflib.SequenceMatcher(None, query, name_l).ratio()
+            score = 1.0 if q in name_l else difflib.SequenceMatcher(None, q, name_l).ratio()
             if score >= 0.35:
                 matches.append((score, player_id, player_name, is_active))
         matches.sort(key=lambda x: (x[3], x[0]), reverse=True)
         top = matches[: max(1, limit)]
         if not top:
             return f"No players matched '{query_raw}'. Try a different spelling or a shorter substring."
-
         result = f"Player ID matches for '{query_raw}':\n\n"
         for score, pid, name_, is_active in top:
             status = "Active" if is_active == 1 else "Inactive"
@@ -977,32 +689,36 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
                 f"Headshot: {get_player_headshot_url(pid)} | Thumb: {get_player_headshot_thumbnail_url(pid)}\n"
             )
         return result
+    return await _tool_impl("resolve_player_id", _args, _impl)
 
-    if name == "find_game_id":
-        date_str = str(arguments.get("date", "")).strip()
-        home_q = str(arguments.get("home_team", "")).strip().lower()
-        away_q = str(arguments.get("away_team", "")).strip().lower()
-        team_q = str(arguments.get("team", "")).strip().lower()
-        limit = int(arguments.get("limit", 10) or 10)
+
+@mcp.tool(description="Find game_id by date and matchup. If date omitted, finds most recent matchup via schedule.")
+async def find_game_id(
+    date: str = "", home_team: str = "", away_team: str = "",
+    team: str = "", lookback_days: int = 365, limit: int = 10,
+) -> list[TextContent]:
+    _args: dict[str, Any] = {"date": date, "home_team": home_team, "away_team": away_team, "team": team, "lookback_days": lookback_days, "limit": limit}
+
+    async def _impl():
+        date_str = date.strip()
+        home_q = home_team.strip().lower()
+        away_q = away_team.strip().lower()
+        team_q = team.strip().lower()
 
         if not date_str:
-            lookback_days = int(arguments.get("lookback_days", 365) or 365)
-            lookback_days = max(1, min(3650, lookback_days))
+            lb = max(1, min(3650, lookback_days))
             home_id = _best_team_id_from_query(home_q) if home_q else None
             away_id = _best_team_id_from_query(away_q) if away_q else None
             single_id = _best_team_id_from_query(team_q) if team_q else None
             if not ((home_id and away_id) or single_id):
                 return "Please provide 'home_team' + 'away_team' or 'team'."
-
             url = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
             data = await fetch_nba_data(url)
             if not data:
                 return "Error fetching league schedule. Please try again."
-
             game_dates = safe_get(data, "leagueSchedule", "gameDates", default=[])
             if not game_dates:
                 return "No schedule data available."
-
             cutoff_date = datetime.now().date()
             matches: list[dict[str, Any]] = []
             for date_entry in game_dates:
@@ -1014,62 +730,43 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
                         game_dt = datetime.fromisoformat(str(game_dt_str).replace("Z", "+00:00"))
                     except ValueError:
                         continue
-
                     days_back = (cutoff_date - game_dt.date()).days
-                    if days_back < 0 or days_back > lookback_days:
+                    if days_back < 0 or days_back > lb:
                         continue
-
                     hid = _to_int(safe_get(game, "homeTeam", "teamId"))
                     aid = _to_int(safe_get(game, "awayTeam", "teamId"))
                     if hid is None or aid is None:
                         continue
-
                     if home_id and away_id:
                         if {hid, aid} != {home_id, away_id}:
                             continue
                     elif single_id:
                         if hid != single_id and aid != single_id:
                             continue
-
                     status_text = safe_get(game, "gameStatusText", default="Unknown")
                     status_num = _to_int(safe_get(game, "gameStatus", default=None))
-                    matches.append(
-                        {
-                            "game_id": safe_get(game, "gameId", default="N/A"),
-                            "date": game_dt.strftime("%Y-%m-%d"),
-                            "home_team_id": hid,
-                            "away_team_id": aid,
-                            "home_name": f"{safe_get(game, 'homeTeam', 'teamCity')} {safe_get(game, 'homeTeam', 'teamName')}".strip(),
-                            "away_name": f"{safe_get(game, 'awayTeam', 'teamCity')} {safe_get(game, 'awayTeam', 'teamName')}".strip(),
-                            "status": status_text,
-                            "status_num": status_num,
-                        }
-                    )
+                    matches.append({
+                        "game_id": safe_get(game, "gameId", default="N/A"),
+                        "date": game_dt.strftime("%Y-%m-%d"),
+                        "home_team_id": hid, "away_team_id": aid,
+                        "home_name": f"{safe_get(game, 'homeTeam', 'teamCity')} {safe_get(game, 'homeTeam', 'teamName')}".strip(),
+                        "away_name": f"{safe_get(game, 'awayTeam', 'teamCity')} {safe_get(game, 'awayTeam', 'teamName')}".strip(),
+                        "status": status_text, "status_num": status_num,
+                    })
 
             def _sort_key(m: dict[str, Any]) -> tuple[int, str]:
-                completed = (
-                    1
-                    if m.get("status_num") == 3
-                    or str(m.get("status", "")).lower().startswith("final")
-                    else 0
-                )
+                completed = 1 if m.get("status_num") == 3 or str(m.get("status", "")).lower().startswith("final") else 0
                 return (completed, str(m.get("date", "")))
-
             matches.sort(key=_sort_key, reverse=True)
             top = matches[: max(1, limit)]
             if not top:
                 return "No games found in the schedule for the given filters/window."
-
             result = "Most recent game ID matches:\n\n"
             for g in top:
-                result += f"Game ID: {g.get('game_id')}\n"
-                result += f"Date: {g.get('date')}\n"
-                result += f"{g.get('away_name')} @ {g.get('home_name')}\n"
-                result += f"Status: {g.get('status')}\n"
-                result += (
-                    f"Home Team ID: {g.get('home_team_id')} | Logo: {get_team_logo_url(g.get('home_team_id'))}\n"
-                    f"Away Team ID: {g.get('away_team_id')} | Logo: {get_team_logo_url(g.get('away_team_id'))}\n\n"
-                )
+                result += f"Game ID: {g.get('game_id')}\nDate: {g.get('date')}\n"
+                result += f"{g.get('away_name')} @ {g.get('home_name')}\nStatus: {g.get('status')}\n"
+                result += f"Home Team ID: {g.get('home_team_id')} | Logo: {get_team_logo_url(g.get('home_team_id'))}\n"
+                result += f"Away Team ID: {g.get('away_team_id')} | Logo: {get_team_logo_url(g.get('away_team_id'))}\n\n"
             return result
 
         try:
@@ -1077,101 +774,42 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
             formatted_date = date_obj.strftime("%Y-%m-%d")
         except ValueError:
             return "Invalid date format. Use YYYYMMDD (e.g., '20241103')"
-
         url = f"{NBA_LIVE_API}/scoreboard/scoreboard_{date_str}.json"
         data = await fetch_nba_data(url)
         games = safe_get(data, "scoreboard", "games", default=[]) if data else []
         live_ok = bool(games and games != "N/A")
-
         if not live_ok:
             stats_games = await _get_scoreboard_games_stats_api(date_obj)
             if stats_games is None:
                 return f"No data available for {formatted_date}. The NBA APIs may be unavailable or blocked."
             if not stats_games:
                 return f"No games found for {formatted_date}."
-
             filtered_stats = []
             for g in stats_games:
-                home_name = str(g.get("home_name", "")).lower()
-                away_name = str(g.get("away_name", "")).lower()
-                if home_q and home_q not in home_name:
+                hn = str(g.get("home_name", "")).lower()
+                an = str(g.get("away_name", "")).lower()
+                if home_q and home_q not in hn:
                     continue
-                if away_q and away_q not in away_name:
+                if away_q and away_q not in an:
                     continue
-                if team_q and team_q not in home_name and team_q not in away_name:
+                if team_q and team_q not in hn and team_q not in an:
                     continue
                 filtered_stats.append(g)
-
             if not filtered_stats:
                 return f"No games matched your filters for {formatted_date}. Try using only 'team' or check spelling."
-
             result = f"Game ID matches for {formatted_date}:\n\n"
             for g in filtered_stats[: max(1, limit)]:
-                result += f"Game ID: {g.get('game_id', 'N/A')}\n"
-                result += f"{g.get('away_name', 'Away')} @ {g.get('home_name', 'Home')}\n"
-                result += f"Status: {g.get('status', 'Unknown')}\n\n"
+                result += f"Game ID: {g.get('game_id', 'N/A')}\n{g.get('away_name', 'Away')} @ {g.get('home_name', 'Home')}\nStatus: {g.get('status', 'Unknown')}\n\n"
             return result
-
         return f"Game ID matches for {formatted_date}:\n\n(Use scoreboard tools for detailed listings.)\n"
+    return await _tool_impl("find_game_id", _args, _impl)
 
-    if name == "get_scoreboard_by_date":
-        date_str = str(arguments.get("date", "")).strip()
-        try:
-            date_obj = datetime.strptime(date_str, "%Y%m%d")
-            formatted_date = date_obj.strftime("%Y-%m-%d")
-        except ValueError:
-            return "Invalid date format. Use YYYYMMDD (e.g., '20241103')"
 
-        url = f"{NBA_LIVE_API}/scoreboard/scoreboard_{date_str}.json"
-        data = await fetch_nba_data(url)
-
-        if not data:
-            stats_games = await _get_scoreboard_games_stats_api(date_obj)
-            if stats_games is None:
-                return f"No data available for {formatted_date}. The game data might not be available yet or the date might be incorrect."
-            if not stats_games:
-                return f"No games found for {formatted_date}."
-
-            result = f"NBA Games for {formatted_date}:\n\n"
-            for g in stats_games:
-                result += f"Game ID: {g.get('game_id', 'N/A')}\n"
-                result += f"{g.get('away_name', 'Away')} ({g.get('away_score', 'N/A')}) @ {g.get('home_name', 'Home')} ({g.get('home_score', 'N/A')})\n"
-                result += f"Status: {g.get('status', 'Unknown')}\n\n"
-            return result
-
-        scoreboard = safe_get(data, "scoreboard")
-        games = safe_get(scoreboard, "games", default=[])
-        if not games:
-            return f"No games found for {formatted_date}."
-
-        result = f"NBA Games for {formatted_date}:\n\n"
-        for game in games:
-            home_team = safe_get(game, "homeTeam", default={})
-            away_team = safe_get(game, "awayTeam", default={})
-            gid = safe_get(game, "gameId", default="N/A")
-            status = safe_get(game, "gameStatusText", default="Unknown")
-
-            home_id = safe_get(home_team, "teamId", default="")
-            away_id = safe_get(away_team, "teamId", default="")
-
-            result += f"Game ID: {gid}\n"
-            result += (
-                f"{safe_get(away_team, 'teamName')} ({safe_get(away_team, 'score')}) @ "
-                f"{safe_get(home_team, 'teamName')} ({safe_get(home_team, 'score')})\n"
-            )
-            result += f"Status: {status}\n"
-            if home_id not in ("", "N/A"):
-                result += f"Home Team ID: {home_id} | Logo: {get_team_logo_url(home_id)}\n"
-            if away_id not in ("", "N/A"):
-                result += f"Away Team ID: {away_id} | Logo: {get_team_logo_url(away_id)}\n"
-            result += "\n"
-
-        return result
-
-    if name == "get_todays_scoreboard":
+@mcp.tool(description="Today's games.")
+async def get_todays_scoreboard() -> list[TextContent]:
+    async def _impl():
         url = f"{NBA_LIVE_API}/scoreboard/todaysScoreboard_00.json"
         data = await fetch_nba_data(url)
-
         if not data:
             today = datetime.now()
             stats_games = await _get_scoreboard_games_stats_api(today)
@@ -1179,490 +817,199 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
                 return "Error fetching today's scoreboard. Please try again."
             if not stats_games:
                 return f"No games scheduled for {today.strftime('%Y-%m-%d')}."
-
             result = f"NBA Games for {today.strftime('%Y-%m-%d')}:\n\n"
             for g in stats_games:
-                result += f"Game ID: {g.get('game_id', 'N/A')}\n"
-                result += f"{g.get('away_name', 'Away')} ({g.get('away_score', 'N/A')}) @ {g.get('home_name', 'Home')} ({g.get('home_score', 'N/A')})\n"
-                result += f"Status: {g.get('status', 'Unknown')}\n\n"
+                result += f"Game ID: {g.get('game_id', 'N/A')}\n{g.get('away_name', 'Away')} ({g.get('away_score', 'N/A')}) @ {g.get('home_name', 'Home')} ({g.get('home_score', 'N/A')})\nStatus: {g.get('status', 'Unknown')}\n\n"
             return result
-
         scoreboard = safe_get(data, "scoreboard")
         if not scoreboard or scoreboard == "N/A":
             return "No scoreboard data available."
-
         games = safe_get(scoreboard, "games", default=[])
         game_date = safe_get(scoreboard, "gameDate", default=datetime.now().strftime("%Y-%m-%d"))
         if not games:
             return f"No games scheduled for {game_date}."
-
         result = f"NBA Games for {game_date}:\n\n"
         for game in games:
-            home_team = safe_get(game, "homeTeam", default={})
-            away_team = safe_get(game, "awayTeam", default={})
-
-            home_name = safe_get(home_team, "teamName", default="Home Team")
-            away_name = safe_get(away_team, "teamName", default="Away Team")
-            home_score = safe_get(home_team, "score", default=0)
-            away_score = safe_get(away_team, "score", default=0)
-            game_status = safe_get(game, "gameStatusText", default="Unknown")
-            game_id = safe_get(game, "gameId", default="N/A")
-
-            home_id = safe_get(home_team, "teamId", default="")
-            away_id = safe_get(away_team, "teamId", default="")
-
-            result += f"Game ID: {game_id}\n"
-            result += f"{away_name} ({away_score}) @ {home_name} ({home_score})\n"
-            result += f"Status: {game_status}\n"
-            if home_id not in ("", "N/A"):
-                result += f"Home Team ID: {home_id} | Logo: {get_team_logo_url(home_id)}\n"
-            if away_id not in ("", "N/A"):
-                result += f"Away Team ID: {away_id} | Logo: {get_team_logo_url(away_id)}\n"
+            ht = safe_get(game, "homeTeam", default={})
+            at = safe_get(game, "awayTeam", default={})
+            hid = safe_get(ht, "teamId", default="")
+            aid = safe_get(at, "teamId", default="")
+            result += f"Game ID: {safe_get(game, 'gameId', default='N/A')}\n"
+            result += f"{safe_get(at, 'teamName', default='Away Team')} ({safe_get(at, 'score', default=0)}) @ {safe_get(ht, 'teamName', default='Home Team')} ({safe_get(ht, 'score', default=0)})\n"
+            result += f"Status: {safe_get(game, 'gameStatusText', default='Unknown')}\n"
+            if hid not in ("", "N/A"):
+                result += f"Home Team ID: {hid} | Logo: {get_team_logo_url(hid)}\n"
+            if aid not in ("", "N/A"):
+                result += f"Away Team ID: {aid} | Logo: {get_team_logo_url(aid)}\n"
             result += "\n"
-
         return result
+    return await _tool_impl("get_todays_scoreboard", {}, _impl)
 
-    if name == "get_all_time_leaders":
-        stat_category = str(arguments.get("stat_category", "points")).lower()
-        limit = min(int(arguments.get("limit", 10) or 10), 50)
 
-        stat_map = {
-            "points": "PTSLeaders",
-            "rebounds": "REBLeaders",
-            "assists": "ASTLeaders",
-            "steals": "STLLeaders",
-            "blocks": "BLKLeaders",
-            "games": "GPLeaders",
-            "offensive_rebounds": "OREBLeaders",
-            "defensive_rebounds": "DREBLeaders",
-            "field_goals_made": "FGMLeaders",
-            "field_goals_attempted": "FGALeaders",
-            "field_goal_pct": "FG_PCTLeaders",
-            "three_pointers_made": "FG3MLeaders",
-            "three_pointers_attempted": "FG3ALeaders",
-            "three_point_pct": "FG3_PCTLeaders",
-            "free_throws_made": "FTMLeaders",
-            "free_throws_attempted": "FTALeaders",
-            "free_throw_pct": "FT_PCTLeaders",
-            "turnovers": "TOVLeaders",
-            "personal_fouls": "PFLeaders",
-        }
+@mcp.tool(description="Games for a specific date (YYYYMMDD).")
+async def get_scoreboard_by_date(date: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"date": date}
 
-        if stat_category not in stat_map:
-            valid_cats = ", ".join(sorted(stat_map.keys()))
-            return f"Invalid stat category. Choose from: {valid_cats}"
-
-        result_set_name = stat_map[stat_category]
-        url = f"{NBA_STATS_API}/alltimeleadersgrids"
-        params = {
-            "LeagueID": "00",
-            "PerMode": "Totals",
-            "SeasonType": "Regular Season",
-            "TopX": str(limit),
-        }
-        data = await fetch_nba_data(url, params)
-        if not data:
-            return "Error fetching all-time leaders. Please try again."
-
-        leaders_data = None
-        for result_set in safe_get(data, "resultSets", default=[]):
-            if result_set.get("name") == result_set_name:
-                leaders_data = result_set.get("rowSet", [])
-                break
-        if not leaders_data:
-            return f"No all-time leaders found for {stat_category}."
-
-        stat_display = stat_category.replace("_", " ").title()
-        result = f"All-Time Career Leaders - {stat_display}:\n\n"
-        for i, player in enumerate(leaders_data, 1):
-            player_name = safe_get(player, 1, default="Unknown")
-            stat_value = safe_get(player, 2, default=0)
-            is_active = safe_get(player, 4, default=0)
-
-            if "pct" in stat_category:
-                stat_str = format_stat(stat_value, is_percentage=True)
-            else:
-                try:
-                    stat_str = f"{int(float(stat_value)):,}"
-                except (ValueError, TypeError):
-                    stat_str = str(stat_value)
-
-            active_marker = " ✓" if is_active == 1 else ""
-            result += f"{i}. {player_name}: {stat_str}{active_marker}\n"
-
-        if any(safe_get(p, 4, default=0) == 1 for p in leaders_data):
-            result += "\n✓ = Active player"
-        return result
-
-    if name == "get_player_info":
-        player_id = arguments.get("player_id")
-        if not player_id:
-            return "Please provide player_id."
-
-        url = f"{NBA_STATS_API}/commonplayerinfo"
-        params = {"PlayerID": player_id}
-        data = await fetch_nba_data(url, params)
-        if not data:
-            return "Error fetching player info. Please try again."
-
-        info_headers = safe_get(data, "resultSets", 0, "headers", default=[])
-        player_data = safe_get(data, "resultSets", 0, "rowSet", 0, default=[])
-        if not player_data or player_data == "N/A":
-            return "Player not found."
-
-        result = "Player Information:\n\n"
-        result += f"Player ID: {player_id}\n"
-        result += f"Headshot (1040x760): {get_player_headshot_url(player_id)}\n"
-        result += f"Headshot (260x190): {get_player_headshot_thumbnail_url(player_id)}\n"
-
-        # Common fields (best-effort; indices vary by endpoint versions)
-        # DISPLAY_FIRST_LAST is commonly index 3.
-        result += f"Name: {safe_get(player_data, 3)}\n"
-
-        # Prefer header-based lookups when possible
-        def _hidx(col: str, fallback: Optional[int] = None) -> Optional[int]:
-            try:
-                return info_headers.index(col)
-            except Exception:
-                return fallback
-
-        jersey_idx = _hidx("JERSEY", 13)
-        pos_idx = _hidx("POSITION", 14)
-        height_idx = _hidx("HEIGHT", 10)
-        weight_idx = _hidx("WEIGHT", 11)
-        birth_idx = _hidx("BIRTHDATE", 6)
-        country_idx = _hidx("COUNTRY", 8)
-        school_idx = _hidx("SCHOOL", 7)
-        roster_idx = _hidx("ROSTERSTATUS", None)
-        team_id_idx = _hidx("TEAM_ID", None)
-        team_name_idx = _hidx("TEAM_NAME", None)
-        team_abbr_idx = _hidx("TEAM_ABBREVIATION", None)
-
-        if jersey_idx is not None:
-            result += f"Jersey: #{safe_get(player_data, jersey_idx)}\n"
-        if pos_idx is not None:
-            result += f"Position: {safe_get(player_data, pos_idx)}\n"
-        if roster_idx is not None:
-            result += f"Status: {safe_get(player_data, roster_idx)}\n"
-        if height_idx is not None:
-            result += f"Height: {safe_get(player_data, height_idx)}\n"
-        if weight_idx is not None:
-            result += f"Weight: {safe_get(player_data, weight_idx)} lbs\n"
-        if birth_idx is not None:
-            result += f"Birth Date: {safe_get(player_data, birth_idx)}\n"
-        if country_idx is not None:
-            result += f"Country: {safe_get(player_data, country_idx)}\n"
-        if school_idx is not None:
-            result += f"School: {safe_get(player_data, school_idx)}\n"
-
-        team_id_val = (
-            safe_get(player_data, team_id_idx, default="") if team_id_idx is not None else ""
-        )
-        team_name_val = (
-            safe_get(player_data, team_name_idx, default="") if team_name_idx is not None else ""
-        )
-        team_abbr_val = (
-            safe_get(player_data, team_abbr_idx, default="") if team_abbr_idx is not None else ""
-        )
-
-        if team_id_val:
-            result += f"Team: {team_name_val} (ID: {team_id_val})"
-            if team_abbr_val and team_abbr_val != "N/A":
-                result += f" [{team_abbr_val}]"
-            result += f" | Logo: {get_team_logo_url(team_id_val)}\n"
-        elif team_name_val:
-            result += f"Team: {team_name_val}\n"
-
-        return result
-
-    if name == "get_league_leaders":
-        stat_type = str(arguments.get("stat_type", "Points"))
-        season = str(arguments.get("season", get_current_season()))
-        limit = min(int(arguments.get("limit", 10) or 10), 50)
-
-        # Map friendly stat names to NBA Stats API columns.
-        stat_map = {
-            "Points": "PTS",
-            "Assists": "AST",
-            "Rebounds": "REB",
-            "Steals": "STL",
-            "Blocks": "BLK",
-            "FG%": "FG_PCT",
-            "3P%": "FG3_PCT",
-            "FT%": "FT_PCT",
-        }
-        stat_category = stat_map.get(stat_type, stat_map.get(stat_type.title(), "PTS"))
-
-        # Use leaguedashplayerstats (PerGame) so results are already per-game and sortable.
-        url = f"{NBA_STATS_API}/leaguedashplayerstats"
-        params = {
-            "LeagueID": "00",
-            "Season": season,
-            "SeasonType": "Regular Season",
-            "PerMode": "PerGame",
-            "MeasureType": "Base",
-            "PlusMinus": "N",
-            "PaceAdjust": "N",
-            "Rank": "N",
-            "Outcome": "",
-            "Location": "",
-            "Month": "0",
-            "SeasonSegment": "",
-            "DateFrom": "",
-            "DateTo": "",
-            "OpponentTeamID": "0",
-            "VsConference": "",
-            "VsDivision": "",
-            "GameSegment": "",
-            "Period": "0",
-            "LastNGames": "0",
-        }
-
-        data = await fetch_nba_data(url, params)
-        if not data:
-            return "Error fetching league leaders. Please try again."
-
-        headers = safe_get(data, "resultSets", 0, "headers", default=[])
-        rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
-        if not rows or not headers:
-            return f"No data found for {stat_type} leaders."
-
+    async def _impl():
+        date_str = date.strip()
         try:
-            player_id_idx = headers.index("PLAYER_ID")
+            date_obj = datetime.strptime(date_str, "%Y%m%d")
+            formatted_date = date_obj.strftime("%Y-%m-%d")
         except ValueError:
-            player_id_idx = 0
-        try:
-            player_name_idx = headers.index("PLAYER_NAME")
-        except ValueError:
-            player_name_idx = 1
-        try:
-            team_abbr_idx = headers.index("TEAM_ABBREVIATION")
-        except ValueError:
-            team_abbr_idx = 3
-
-        if stat_category not in headers:
-            valid = ", ".join(sorted(stat_map.keys()))
-            return f"Unsupported stat_type '{stat_type}'. Try one of: {valid}"
-        stat_idx = headers.index(stat_category)
-
-        # Sort descending by the stat. Some pct fields may be strings; coerce carefully.
-        def _val(row: list[Any]) -> float:
-            v = safe_get(row, stat_idx, default=0)
-            try:
-                return float(v)
-            except Exception:
-                return 0.0
-
-        sorted_rows = sorted(rows, key=_val, reverse=True)
-
-        stat_display = stat_type
-        result = f"League Leaders - {stat_display} ({season}) [Per Game]:\n\n"
-        for i, row in enumerate(sorted_rows[:limit], 1):
-            pid = safe_get(row, player_id_idx, default="N/A")
-            name_ = safe_get(row, player_name_idx, default="Unknown")
-            team_ = safe_get(row, team_abbr_idx, default="N/A")
-            val = safe_get(row, stat_idx, default="N/A")
-
-            # Format percentages nicely
-            if stat_category.endswith("_PCT"):
-                try:
-                    val_f = float(val)
-                    val_s = f"{val_f * 100:.1f}%"
-                except Exception:
-                    val_s = str(val)
-            else:
-                val_s = str(val)
-
-            result += f"{i}. {name_} ({team_}) - {val_s} | Player ID: {pid}\n"
-
+            return "Invalid date format. Use YYYYMMDD (e.g., '20241103')"
+        url = f"{NBA_LIVE_API}/scoreboard/scoreboard_{date_str}.json"
+        data = await fetch_nba_data(url)
+        if not data:
+            stats_games = await _get_scoreboard_games_stats_api(date_obj)
+            if stats_games is None:
+                return f"No data available for {formatted_date}. The game data might not be available yet or the date might be incorrect."
+            if not stats_games:
+                return f"No games found for {formatted_date}."
+            result = f"NBA Games for {formatted_date}:\n\n"
+            for g in stats_games:
+                result += f"Game ID: {g.get('game_id', 'N/A')}\n{g.get('away_name', 'Away')} ({g.get('away_score', 'N/A')}) @ {g.get('home_name', 'Home')} ({g.get('home_score', 'N/A')})\nStatus: {g.get('status', 'Unknown')}\n\n"
+            return result
+        scoreboard = safe_get(data, "scoreboard")
+        games = safe_get(scoreboard, "games", default=[])
+        if not games:
+            return f"No games found for {formatted_date}."
+        result = f"NBA Games for {formatted_date}:\n\n"
+        for game in games:
+            ht = safe_get(game, "homeTeam", default={})
+            at = safe_get(game, "awayTeam", default={})
+            hid = safe_get(ht, "teamId", default="")
+            aid = safe_get(at, "teamId", default="")
+            result += f"Game ID: {safe_get(game, 'gameId', default='N/A')}\n"
+            result += f"{safe_get(at, 'teamName')} ({safe_get(at, 'score')}) @ {safe_get(ht, 'teamName')} ({safe_get(ht, 'score')})\nStatus: {safe_get(game, 'gameStatusText', default='Unknown')}\n"
+            if hid not in ("", "N/A"):
+                result += f"Home Team ID: {hid} | Logo: {get_team_logo_url(hid)}\n"
+            if aid not in ("", "N/A"):
+                result += f"Away Team ID: {aid} | Logo: {get_team_logo_url(aid)}\n"
+            result += "\n"
         return result
+    return await _tool_impl("get_scoreboard_by_date", _args, _impl)
 
-    # -------------------- Remaining tools (ported from last full server) --------------------
 
-    if name == "get_game_details":
-        game_id = str(arguments.get("game_id", "")).strip()
-        if not game_id:
+@mcp.tool(description="Detailed game info for a specific game_id.")
+async def get_game_details(game_id: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"game_id": game_id}
+
+    async def _impl():
+        gid = game_id.strip()
+        if not gid:
             return "Please provide game_id."
+        url = f"{NBA_LIVE_API}/scoreboard/todaysScoreboard_00.json"
+        data = await fetch_nba_data(url)
+        if data:
+            games = safe_get(data, "scoreboard", "games", default=[])
+            game = next((g for g in games if safe_get(g, "gameId") == gid), None)
+            if game:
+                ht = safe_get(game, "homeTeam", default={})
+                at = safe_get(game, "awayTeam", default={})
+                hid = safe_get(ht, "teamId", default="")
+                aid = safe_get(at, "teamId", default="")
+                result = f"Game Details for {gid}:\n\n"
+                result += f"{safe_get(at, 'teamName')} @ {safe_get(ht, 'teamName')}\n"
+                result += f"Score: {safe_get(at, 'score')} - {safe_get(ht, 'score')}\n"
+                result += f"Status: {safe_get(game, 'gameStatusText')}\nPeriod: Q{safe_get(game, 'period', default=0)}\n"
+                if hid not in ("", "N/A"):
+                    result += f"Home Team ID: {hid} | Logo: {get_team_logo_url(hid)}\n"
+                if aid not in ("", "N/A"):
+                    result += f"Away Team ID: {aid} | Logo: {get_team_logo_url(aid)}\n"
+                result += "\n"
+                away_stats = safe_get(at, "statistics", default={})
+                home_stats = safe_get(ht, "statistics", default={})
+                if away_stats != "N/A" and home_stats != "N/A":
+                    result += "Team Statistics:\n"
+                    result += f"{safe_get(at, 'teamName')}:\n  FG: {safe_get(away_stats, 'fieldGoalsMade')}/{safe_get(away_stats, 'fieldGoalsAttempted')}\n  3P: {safe_get(away_stats, 'threePointersMade')}/{safe_get(away_stats, 'threePointersAttempted')}\n  FT: {safe_get(away_stats, 'freeThrowsMade')}/{safe_get(away_stats, 'freeThrowsAttempted')}\n  Rebounds: {safe_get(away_stats, 'reboundsTotal')}\n  Assists: {safe_get(away_stats, 'assists')}\n\n"
+                    result += f"{safe_get(ht, 'teamName')}:\n  FG: {safe_get(home_stats, 'fieldGoalsMade')}/{safe_get(home_stats, 'fieldGoalsAttempted')}\n  3P: {safe_get(home_stats, 'threePointersMade')}/{safe_get(home_stats, 'threePointersAttempted')}\n  FT: {safe_get(home_stats, 'freeThrowsMade')}/{safe_get(home_stats, 'freeThrowsAttempted')}\n  Rebounds: {safe_get(home_stats, 'reboundsTotal')}\n  Assists: {safe_get(home_stats, 'assists')}\n"
+                return result
+        return f"Game {gid} not found in today's games. Try get_scoreboard_by_date to find the correct game_id."
+    return await _tool_impl("get_game_details", _args, _impl)
 
-        # Try today's scoreboard first
-        try:
-            url = f"{NBA_LIVE_API}/scoreboard/todaysScoreboard_00.json"
-            data = await fetch_nba_data(url)
-            if data:
-                games = safe_get(data, "scoreboard", "games", default=[])
-                game = next((g for g in games if safe_get(g, "gameId") == game_id), None)
-                if game:
-                    home_team = safe_get(game, "homeTeam", default={})
-                    away_team = safe_get(game, "awayTeam", default={})
-                    home_id = safe_get(home_team, "teamId", default="")
-                    away_id = safe_get(away_team, "teamId", default="")
 
-                    result = f"Game Details for {game_id}:\n\n"
-                    result += (
-                        f"{safe_get(away_team, 'teamName')} @ {safe_get(home_team, 'teamName')}\n"
-                    )
-                    result += (
-                        f"Score: {safe_get(away_team, 'score')} - {safe_get(home_team, 'score')}\n"
-                    )
-                    result += f"Status: {safe_get(game, 'gameStatusText')}\n"
-                    result += f"Period: Q{safe_get(game, 'period', default=0)}\n"
-                    if home_id not in ("", "N/A"):
-                        result += f"Home Team ID: {home_id} | Logo: {get_team_logo_url(home_id)}\n"
-                    if away_id not in ("", "N/A"):
-                        result += f"Away Team ID: {away_id} | Logo: {get_team_logo_url(away_id)}\n"
-                    result += "\n"
+@mcp.tool(description="Full box score for a game_id.")
+async def get_box_score(game_id: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"game_id": game_id}
 
-                    away_stats = safe_get(away_team, "statistics", default={})
-                    home_stats = safe_get(home_team, "statistics", default={})
-                    if away_stats != "N/A" and home_stats != "N/A":
-                        result += "Team Statistics:\n"
-                        result += f"{safe_get(away_team, 'teamName')}:\n"
-                        result += f"  FG: {safe_get(away_stats, 'fieldGoalsMade')}/{safe_get(away_stats, 'fieldGoalsAttempted')}\n"
-                        result += f"  3P: {safe_get(away_stats, 'threePointersMade')}/{safe_get(away_stats, 'threePointersAttempted')}\n"
-                        result += f"  FT: {safe_get(away_stats, 'freeThrowsMade')}/{safe_get(away_stats, 'freeThrowsAttempted')}\n"
-                        result += f"  Rebounds: {safe_get(away_stats, 'reboundsTotal')}\n"
-                        result += f"  Assists: {safe_get(away_stats, 'assists')}\n\n"
-
-                        result += f"{safe_get(home_team, 'teamName')}:\n"
-                        result += f"  FG: {safe_get(home_stats, 'fieldGoalsMade')}/{safe_get(home_stats, 'fieldGoalsAttempted')}\n"
-                        result += f"  3P: {safe_get(home_stats, 'threePointersMade')}/{safe_get(home_stats, 'threePointersAttempted')}\n"
-                        result += f"  FT: {safe_get(home_stats, 'freeThrowsMade')}/{safe_get(home_stats, 'freeThrowsAttempted')}\n"
-                        result += f"  Rebounds: {safe_get(home_stats, 'reboundsTotal')}\n"
-                        result += f"  Assists: {safe_get(home_stats, 'assists')}\n"
-
-                    return result
-
-            return f"Game {game_id} not found in today's games. Try get_scoreboard_by_date to find the correct game_id."
-        except Exception as e:
-            logger.error(f"Error fetching game details: {e}")
-            return f"Error fetching game details: {str(e)}"
-
-    if name == "get_box_score":
-        game_id = str(arguments.get("game_id", "")).strip()
-        if not game_id:
+    async def _impl():
+        gid = game_id.strip()
+        if not gid:
             return "Please provide game_id."
-
-        # Live boxscore first
-        url = f"{NBA_LIVE_API}/boxscore/boxscore_{game_id}.json"
+        url = f"{NBA_LIVE_API}/boxscore/boxscore_{gid}.json"
         live_data = await fetch_nba_data(url)
         if live_data and safe_get(live_data, "game") != "N/A":
             game = safe_get(live_data, "game", default={})
-            home_team = safe_get(game, "homeTeam", default={})
-            away_team = safe_get(game, "awayTeam", default={})
-
-            result = f"Box Score for Game {game_id}:\n"
-            result += f"{safe_get(away_team, 'teamName')} @ {safe_get(home_team, 'teamName')}\n"
-            result += (
-                f"Final Score: {safe_get(away_team, 'score')} - {safe_get(home_team, 'score')}\n\n"
-            )
-            result += "TEAM STATS:\n"
-
-            away_stats = safe_get(away_team, "statistics", default={})
-            if away_stats != "N/A":
-                result += f"\n{safe_get(away_team, 'teamName')}:\n"
-                result += f"  FG: {safe_get(away_stats, 'fieldGoalsMade')}/{safe_get(away_stats, 'fieldGoalsAttempted')}"
-                fg_pct = safe_get(away_stats, "fieldGoalsPercentage", default=0)
-                if fg_pct != "N/A":
-                    result += f" ({format_stat(fg_pct, True)})"
-                result += "\n"
-
-            home_stats = safe_get(home_team, "statistics", default={})
-            if home_stats != "N/A":
-                result += f"\n{safe_get(home_team, 'teamName')}:\n"
-                result += f"  FG: {safe_get(home_stats, 'fieldGoalsMade')}/{safe_get(home_stats, 'fieldGoalsAttempted')}"
-                fg_pct = safe_get(home_stats, "fieldGoalsPercentage", default=0)
-                if fg_pct != "N/A":
-                    result += f" ({format_stat(fg_pct, True)})"
-                result += "\n"
-
+            ht = safe_get(game, "homeTeam", default={})
+            at = safe_get(game, "awayTeam", default={})
+            result = f"Box Score for Game {gid}:\n{safe_get(at, 'teamName')} @ {safe_get(ht, 'teamName')}\nFinal Score: {safe_get(at, 'score')} - {safe_get(ht, 'score')}\n\nTEAM STATS:\n"
+            for label, tm in [("away", at), ("home", ht)]:
+                stats = safe_get(tm, "statistics", default={})
+                if stats != "N/A":
+                    result += f"\n{safe_get(tm, 'teamName')}:\n  FG: {safe_get(stats, 'fieldGoalsMade')}/{safe_get(stats, 'fieldGoalsAttempted')}"
+                    fg_pct = safe_get(stats, "fieldGoalsPercentage", default=0)
+                    if fg_pct != "N/A":
+                        result += f" ({format_stat(fg_pct, True)})"
+                    result += "\n"
             result += "\n" + "=" * 70 + "\nPLAYER STATS:\n\n"
-            away_players = safe_get(away_team, "players", default=[])
-            if away_players and away_players != "N/A":
-                result += f"{safe_get(away_team, 'teamName')}:\n"
-                result += f"{'Player':<25} {'MIN':<6} {'PTS':<5} {'REB':<5} {'AST':<5}\n"
-                result += "-" * 55 + "\n"
-                for player in away_players:
-                    stats = safe_get(player, "statistics", default={})
-                    if stats == "N/A":
-                        continue
-                    minutes = safe_get(stats, "minutes", default="0:00")
-                    if not minutes or minutes == "0:00":
-                        continue
-                    result += f"{safe_get(player, 'name', default='Unknown'):<25} {minutes:<6} {safe_get(stats, 'points', default=0):<5} {safe_get(stats, 'reboundsTotal', default=0):<5} {safe_get(stats, 'assists', default=0):<5}\n"
-
-            home_players = safe_get(home_team, "players", default=[])
-            if home_players and home_players != "N/A":
-                result += f"\n{safe_get(home_team, 'teamName')}:\n"
-                result += f"{'Player':<25} {'MIN':<6} {'PTS':<5} {'REB':<5} {'AST':<5}\n"
-                result += "-" * 55 + "\n"
-                for player in home_players:
-                    stats = safe_get(player, "statistics", default={})
-                    if stats == "N/A":
-                        continue
-                    minutes = safe_get(stats, "minutes", default="0:00")
-                    if not minutes or minutes == "0:00":
-                        continue
-                    result += f"{safe_get(player, 'name', default='Unknown'):<25} {minutes:<6} {safe_get(stats, 'points', default=0):<5} {safe_get(stats, 'reboundsTotal', default=0):<5} {safe_get(stats, 'assists', default=0):<5}\n"
-
+            for label, tm in [("away", at), ("home", ht)]:
+                players = safe_get(tm, "players", default=[])
+                if players and players != "N/A":
+                    result += f"{safe_get(tm, 'teamName')}:\n{'Player':<25} {'MIN':<6} {'PTS':<5} {'REB':<5} {'AST':<5}\n" + "-" * 55 + "\n"
+                    for player in players:
+                        stats = safe_get(player, "statistics", default={})
+                        if stats == "N/A":
+                            continue
+                        minutes = safe_get(stats, "minutes", default="0:00")
+                        if not minutes or minutes == "0:00":
+                            continue
+                        result += f"{safe_get(player, 'name', default='Unknown'):<25} {minutes:<6} {safe_get(stats, 'points', default=0):<5} {safe_get(stats, 'reboundsTotal', default=0):<5} {safe_get(stats, 'assists', default=0):<5}\n"
+                    result += "\n"
             return result
-
         # Stats API fallback
-        url = f"{NBA_STATS_API}/boxscoretraditionalv2"
-        params = {
-            "GameID": game_id,
-            "StartPeriod": "0",
-            "EndPeriod": "10",
-            "RangeType": "0",
-            "StartRange": "0",
-            "EndRange": "0",
-        }
-        data = await fetch_nba_data(url, params)
+        url2 = f"{NBA_STATS_API}/boxscoretraditionalv2"
+        params = {"GameID": gid, "StartPeriod": "0", "EndPeriod": "10", "RangeType": "0", "StartRange": "0", "EndRange": "0"}
+        data = await fetch_nba_data(url2, params)
         if not data:
             return "Error fetching box score. The game stats may not be available yet."
-
         player_stats_rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
         team_stats_rows = safe_get(data, "resultSets", 1, "rowSet", default=[])
         if not player_stats_rows or player_stats_rows == "N/A":
-            return f"Box score not available for game {game_id}."
-
-        result = f"Box Score for Game {game_id} (Stats API):\n\n"
+            return f"Box score not available for game {gid}."
+        result = f"Box Score for Game {gid} (Stats API):\n\n"
         if team_stats_rows and team_stats_rows != "N/A":
             result += "TEAM STATS:\n"
-            for team in team_stats_rows:
-                team_abbr = safe_get(team, 1, default="N/A")
-                pts = safe_get(team, 24, default=0)
-                result += f"  {team_abbr}: {pts} PTS\n"
-        result += "\nPLAYER STATS: (summary)\n"
-        result += f"Players returned: {len(player_stats_rows)}\n"
+            for t in team_stats_rows:
+                result += f"  {safe_get(t, 1, default='N/A')}: {safe_get(t, 24, default=0)} PTS\n"
+        result += f"\nPLAYER STATS: (summary)\nPlayers returned: {len(player_stats_rows)}\n"
         return result
+    return await _tool_impl("get_box_score", _args, _impl)
 
-    if name == "search_players":
-        query = str(arguments.get("query", "")).strip().lower()
-        if not query:
+
+@mcp.tool(description="Search players by name substring.")
+async def search_players(query: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"query": query}
+
+    async def _impl():
+        q = query.strip().lower()
+        if not q:
             return "Please provide a non-empty query."
-
         url = f"{NBA_STATS_API}/commonallplayers"
         params = {"LeagueID": "00", "Season": get_current_season(), "IsOnlyCurrentSeason": "0"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching player data. Please try again."
-
         rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not rows:
             return "No players found."
-
         matching = []
         for row in rows:
             if len(row) > 2:
                 name_ = str(row[2]).lower()
-                if query in name_:
-                    matching.append(
-                        {"id": row[0], "name": row[2], "is_active": row[11] if len(row) > 11 else 1}
-                    )
-
+                if q in name_:
+                    matching.append({"id": row[0], "name": row[2], "is_active": row[11] if len(row) > 11 else 1})
         if not matching:
-            return f"No players found matching '{arguments.get('query')}'."
-
+            return f"No players found matching '{query}'."
         result = f"Found {len(matching)} player(s):\n\n"
         for p in matching[:20]:
             status = "Active" if p["is_active"] == 1 else "Inactive"
@@ -1671,625 +1018,648 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
         if len(matching) > 20:
             result += f"\n... and {len(matching) - 20} more."
         return result
+    return await _tool_impl("search_players", _args, _impl)
 
-    if name == "get_player_season_stats":
-        player_id = str(arguments.get("player_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not player_id:
+
+@mcp.tool(description="Player bio/profile info.")
+async def get_player_info(player_id: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"player_id": player_id}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
+        url = f"{NBA_STATS_API}/commonplayerinfo"
+        params = {"PlayerID": pid}
+        data = await fetch_nba_data(url, params)
+        if not data:
+            return "Error fetching player info. Please try again."
+        info_headers = safe_get(data, "resultSets", 0, "headers", default=[])
+        player_data = safe_get(data, "resultSets", 0, "rowSet", 0, default=[])
+        if not player_data or player_data == "N/A":
+            return "Player not found."
+        result = "Player Information:\n\n"
+        result += f"Player ID: {pid}\nHeadshot (1040x760): {get_player_headshot_url(pid)}\nHeadshot (260x190): {get_player_headshot_thumbnail_url(pid)}\n"
+        result += f"Name: {safe_get(player_data, 3)}\n"
 
+        def _hidx(col, fallback=None):
+            try:
+                return info_headers.index(col)
+            except Exception:
+                return fallback
+
+        for col, label in [("JERSEY", "Jersey: #"), ("POSITION", "Position: "), ("ROSTERSTATUS", "Status: "), ("HEIGHT", "Height: "), ("WEIGHT", "Weight: "), ("BIRTHDATE", "Birth Date: "), ("COUNTRY", "Country: "), ("SCHOOL", "School: ")]:
+            idx = _hidx(col)
+            if idx is not None:
+                val = safe_get(player_data, idx)
+                suffix = " lbs" if col == "WEIGHT" else ""
+                result += f"{label}{val}{suffix}\n"
+
+        ti_idx = _hidx("TEAM_ID")
+        tn_idx = _hidx("TEAM_NAME")
+        ta_idx = _hidx("TEAM_ABBREVIATION")
+        tiv = safe_get(player_data, ti_idx, default="") if ti_idx is not None else ""
+        tnv = safe_get(player_data, tn_idx, default="") if tn_idx is not None else ""
+        tav = safe_get(player_data, ta_idx, default="") if ta_idx is not None else ""
+        if tiv:
+            result += f"Team: {tnv} (ID: {tiv})"
+            if tav and tav != "N/A":
+                result += f" [{tav}]"
+            result += f" | Logo: {get_team_logo_url(tiv)}\n"
+        elif tnv:
+            result += f"Team: {tnv}\n"
+        return result
+    return await _tool_impl("get_player_info", _args, _impl)
+
+
+@mcp.tool(description="Player stats for a season.")
+async def get_player_season_stats(player_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"player_id": player_id, "season": season}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
+            return "Please provide player_id."
         url = f"{NBA_STATS_API}/playercareerstats"
-        params = {"PlayerID": player_id, "PerMode": "PerGame"}
+        params = {"PlayerID": pid, "PerMode": "PerGame"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching player stats. Please try again."
-
         headers = safe_get(data, "resultSets", 0, "headers", default=[])
         all_seasons = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not all_seasons:
             return "No stats found for this player."
-
         season_id_idx = headers.index("SEASON_ID") if "SEASON_ID" in headers else 1
-        stats_row = next(
-            (r for r in all_seasons if str(safe_get(r, season_id_idx)) == season), None
-        )
+        stats_row = next((r for r in all_seasons if str(safe_get(r, season_id_idx)) == season), None)
         if not stats_row:
             return f"No stats found for season {season}."
 
-        def _idx(col: str, fallback: int) -> int:
+        def _idx(col, fb):
             try:
                 return headers.index(col)
             except ValueError:
-                return fallback
-
-        gp_idx = _idx("GP", 6)
-        min_idx = _idx("MIN", 8)
-        pts_idx = _idx("PTS", 26)
-        reb_idx = _idx("REB", 18)
-        ast_idx = _idx("AST", 19)
-        stl_idx = _idx("STL", 21)
-        blk_idx = _idx("BLK", 22)
-        fg_pct_idx = _idx("FG_PCT", 9)
-        fg3_pct_idx = _idx("FG3_PCT", 12)
-        ft_pct_idx = _idx("FT_PCT", 15)
-
-        result = f"Season Stats ({season}) - Player ID {player_id}:\n\n"
-        result += f"Headshot: {get_player_headshot_url(player_id)}\n"
-        result += f"GP: {safe_get(stats_row, gp_idx)} | MIN: {format_stat(safe_get(stats_row, min_idx))}\n"
-        result += f"PTS: {format_stat(safe_get(stats_row, pts_idx))} | REB: {format_stat(safe_get(stats_row, reb_idx))} | AST: {format_stat(safe_get(stats_row, ast_idx))}\n"
-        result += f"STL: {format_stat(safe_get(stats_row, stl_idx))} | BLK: {format_stat(safe_get(stats_row, blk_idx))}\n"
-        result += f"FG%: {format_stat(safe_get(stats_row, fg_pct_idx), True)} | 3P%: {format_stat(safe_get(stats_row, fg3_pct_idx), True)} | FT%: {format_stat(safe_get(stats_row, ft_pct_idx), True)}\n"
+                return fb
+        result = f"Season Stats ({season}) - Player ID {pid}:\n\nHeadshot: {get_player_headshot_url(pid)}\n"
+        result += f"GP: {safe_get(stats_row, _idx('GP', 6))} | MIN: {format_stat(safe_get(stats_row, _idx('MIN', 8)))}\n"
+        result += f"PTS: {format_stat(safe_get(stats_row, _idx('PTS', 26)))} | REB: {format_stat(safe_get(stats_row, _idx('REB', 18)))} | AST: {format_stat(safe_get(stats_row, _idx('AST', 19)))}\n"
+        result += f"STL: {format_stat(safe_get(stats_row, _idx('STL', 21)))} | BLK: {format_stat(safe_get(stats_row, _idx('BLK', 22)))}\n"
+        result += f"FG%: {format_stat(safe_get(stats_row, _idx('FG_PCT', 9)), True)} | 3P%: {format_stat(safe_get(stats_row, _idx('FG3_PCT', 12)), True)} | FT%: {format_stat(safe_get(stats_row, _idx('FT_PCT', 15)), True)}\n"
         return result
+    return await _tool_impl("get_player_season_stats", _args, _impl)
 
-    if name == "get_player_game_log":
-        player_id = str(arguments.get("player_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not player_id:
+
+@mcp.tool(description="Player game log for a season.")
+async def get_player_game_log(player_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"player_id": player_id, "season": season}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
         url = f"{NBA_STATS_API}/playergamelog"
-        params = {"PlayerID": player_id, "Season": season, "SeasonType": "Regular Season"}
+        params = {"PlayerID": pid, "Season": season, "SeasonType": "Regular Season"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching game log. Please try again."
-
         headers = safe_get(data, "resultSets", 0, "headers", default=[])
         games = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not games:
             return f"No games found for season {season}."
 
-        def _idx(col: str, fallback: int) -> int:
+        def _idx(col, fb):
             try:
                 return headers.index(col)
             except ValueError:
-                return fallback
-
-        date_idx = _idx("GAME_DATE", 2)
-        matchup_idx = _idx("MATCHUP", 3)
-        wl_idx = _idx("WL", 4)
-        min_idx = _idx("MIN", 5)
-        pts_idx = _idx("PTS", 24)
-        reb_idx = _idx("REB", 18)
-        ast_idx = _idx("AST", 19)
-
-        result = f"Game Log - Player {player_id} ({season}):\n\n"
+                return fb
+        result = f"Game Log - Player {pid} ({season}):\n\n"
         for g in games[:10]:
-            result += (
-                f"{safe_get(g, date_idx)} | {safe_get(g, matchup_idx)} | {safe_get(g, wl_idx)} | "
-            )
-            result += f"{safe_get(g, pts_idx)} PTS, {safe_get(g, reb_idx)} REB, {safe_get(g, ast_idx)} AST | MIN {safe_get(g, min_idx)}\n"
+            result += f"{safe_get(g, _idx('GAME_DATE', 2))} | {safe_get(g, _idx('MATCHUP', 3))} | {safe_get(g, _idx('WL', 4))} | "
+            result += f"{safe_get(g, _idx('PTS', 24))} PTS, {safe_get(g, _idx('REB', 18))} REB, {safe_get(g, _idx('AST', 19))} AST | MIN {safe_get(g, _idx('MIN', 5))}\n"
         if len(games) > 10:
             result += f"\n... {len(games) - 10} more games."
         return result
+    return await _tool_impl("get_player_game_log", _args, _impl)
 
-    if name == "get_player_career_stats":
-        player_id = str(arguments.get("player_id", "")).strip()
-        if not player_id:
+
+@mcp.tool(description="Player career totals/averages.")
+async def get_player_career_stats(player_id: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"player_id": player_id}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
         url = f"{NBA_STATS_API}/playercareerstats"
-        params = {"PlayerID": player_id, "PerMode": "Totals"}
+        params = {"PlayerID": pid, "PerMode": "Totals"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching career stats. Please try again."
-
         rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not rows or rows == "N/A":
             return "No career stats found for this player."
-
-        total_games = total_points = total_rebounds = total_assists = total_steals = (
-            total_blocks
-        ) = total_minutes = 0.0
-        for season_row in rows:
-            if len(season_row) > 26:
-                total_games += float(season_row[6]) if season_row[6] else 0
-                total_minutes += float(season_row[8]) if season_row[8] else 0
-                total_rebounds += float(season_row[20]) if season_row[20] else 0
-                total_assists += float(season_row[21]) if season_row[21] else 0
-                total_steals += float(season_row[22]) if season_row[22] else 0
-                total_blocks += float(season_row[23]) if season_row[23] else 0
-                total_points += float(season_row[26]) if season_row[26] else 0
-
-        ppg = total_points / total_games if total_games > 0 else 0
-        rpg = total_rebounds / total_games if total_games > 0 else 0
-        apg = total_assists / total_games if total_games > 0 else 0
-
-        result = "Career Statistics (Regular Season):\n\n"
-        result += f"Player ID: {player_id}\n"
-        result += f"Headshot: {get_player_headshot_url(player_id)}\n\n"
-        result += f"Total Points: {int(total_points):,}\n"
-        result += f"Games Played: {int(total_games):,}\n"
-        result += f"Total Rebounds: {int(total_rebounds):,}\n"
-        result += f"Total Assists: {int(total_assists):,}\n"
-        result += f"Total Steals: {int(total_steals):,}\n"
-        result += f"Total Blocks: {int(total_blocks):,}\n"
-        result += f"Total Minutes: {int(total_minutes):,}\n\n"
-        result += "Career Averages:\n"
-        result += f"PPG: {ppg:.1f} | RPG: {rpg:.1f} | APG: {apg:.1f}\n"
+        tg = tp = tr = ta = ts = tb = tm = 0.0
+        for sr in rows:
+            if len(sr) > 26:
+                tg += float(sr[6]) if sr[6] else 0
+                tm += float(sr[8]) if sr[8] else 0
+                tr += float(sr[20]) if sr[20] else 0
+                ta += float(sr[21]) if sr[21] else 0
+                ts += float(sr[22]) if sr[22] else 0
+                tb += float(sr[23]) if sr[23] else 0
+                tp += float(sr[26]) if sr[26] else 0
+        ppg = tp / tg if tg > 0 else 0
+        rpg = tr / tg if tg > 0 else 0
+        apg = ta / tg if tg > 0 else 0
+        result = f"Career Statistics (Regular Season):\n\nPlayer ID: {pid}\nHeadshot: {get_player_headshot_url(pid)}\n\n"
+        result += f"Total Points: {int(tp):,}\nGames Played: {int(tg):,}\nTotal Rebounds: {int(tr):,}\nTotal Assists: {int(ta):,}\nTotal Steals: {int(ts):,}\nTotal Blocks: {int(tb):,}\nTotal Minutes: {int(tm):,}\n\n"
+        result += f"Career Averages:\nPPG: {ppg:.1f} | RPG: {rpg:.1f} | APG: {apg:.1f}\n"
         return result
+    return await _tool_impl("get_player_career_stats", _args, _impl)
 
-    if name == "get_player_hustle_stats":
-        player_id = str(arguments.get("player_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not player_id:
+
+@mcp.tool(description="Player hustle stats.")
+async def get_player_hustle_stats(player_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"player_id": player_id, "season": season}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
         url = f"{NBA_STATS_API}/leaguehustlestatsplayer"
         params = {"Season": season, "SeasonType": "Regular Season", "PerMode": "Totals"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching hustle stats. Please try again."
-
         rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
-        player_stats = next((r for r in rows if str(safe_get(r, 0)) == str(player_id)), None)
-        if not player_stats:
-            return f"No hustle stats found for player ID {player_id} in season {season}."
-
-        player_name = safe_get(player_stats, 1, default="Player")
-        team = safe_get(player_stats, 3, default="N/A")
-        games = safe_get(player_stats, 5, default=0)
-        result = f"Hustle Statistics - {player_name} ({team}) [{season}]:\n\n"
-        result += f"Games Played: {games}\n\n"
-        result += f"Deflections: {safe_get(player_stats, 10, default=0)}\n"
-        result += f"Charges Drawn: {safe_get(player_stats, 11, default=0)}\n"
-        result += f"Screen Assists: {safe_get(player_stats, 12, default=0)}\n"
-        result += f"Loose Balls Recovered: {safe_get(player_stats, 16, default=0)}\n"
-        result += f"Box Outs: {safe_get(player_stats, 23, default=0)}\n"
+        ps = next((r for r in rows if str(safe_get(r, 0)) == str(pid)), None)
+        if not ps:
+            return f"No hustle stats found for player ID {pid} in season {season}."
+        result = f"Hustle Statistics - {safe_get(ps, 1, default='Player')} ({safe_get(ps, 3, default='N/A')}) [{season}]:\n\nGames Played: {safe_get(ps, 5, default=0)}\n\n"
+        result += f"Deflections: {safe_get(ps, 10, default=0)}\nCharges Drawn: {safe_get(ps, 11, default=0)}\nScreen Assists: {safe_get(ps, 12, default=0)}\nLoose Balls Recovered: {safe_get(ps, 16, default=0)}\nBox Outs: {safe_get(ps, 23, default=0)}\n"
         return result
+    return await _tool_impl("get_player_hustle_stats", _args, _impl)
 
-    if name == "get_league_hustle_leaders":
-        stat_category = str(arguments.get("stat_category", "deflections"))
-        season = str(arguments.get("season", get_current_season()))
 
+@mcp.tool(description="League leaders in a hustle stat category.")
+async def get_league_hustle_leaders(stat_category: str = "deflections", season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"stat_category": stat_category, "season": season}
+
+    async def _impl():
         url = f"{NBA_STATS_API}/leaguehustlestatsplayer"
         params = {"Season": season, "SeasonType": "Regular Season", "PerMode": "Totals"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching hustle stats. Please try again."
-
         rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
-        stat_map = {
-            "deflections": (10, "Deflections"),
-            "charges": (11, "Charges Drawn"),
-            "screen_assists": (12, "Screen Assists"),
-            "loose_balls": (16, "Loose Balls Recovered"),
-            "box_outs": (23, "Box Outs"),
-        }
-        if stat_category not in stat_map:
-            return f"Invalid stat category. Choose from: {', '.join(stat_map.keys())}"
-
-        col_idx, stat_name = stat_map[stat_category]
-        sorted_players = sorted(
-            rows, key=lambda x: float(safe_get(x, col_idx, default=0) or 0), reverse=True
-        )[:10]
-        result = f"League Hustle Leaders - {stat_name} ({season}):\n\n"
-        for i, player in enumerate(sorted_players, 1):
-            name_ = safe_get(player, 1, default="Unknown")
-            team = safe_get(player, 3, default="N/A")
-            val = safe_get(player, col_idx, default=0)
-            result += f"{i}. {name_} ({team}): {val}\n"
+        sm = {"deflections": (10, "Deflections"), "charges": (11, "Charges Drawn"), "screen_assists": (12, "Screen Assists"), "loose_balls": (16, "Loose Balls Recovered"), "box_outs": (23, "Box Outs")}
+        if stat_category not in sm:
+            return f"Invalid stat category. Choose from: {', '.join(sm.keys())}"
+        ci, sn = sm[stat_category]
+        sp = sorted(rows, key=lambda x: float(safe_get(x, ci, default=0) or 0), reverse=True)[:10]
+        result = f"League Hustle Leaders - {sn} ({season}):\n\n"
+        for i, p in enumerate(sp, 1):
+            result += f"{i}. {safe_get(p, 1, default='Unknown')} ({safe_get(p, 3, default='N/A')}): {safe_get(p, ci, default=0)}\n"
         return result
+    return await _tool_impl("get_league_hustle_leaders", _args, _impl)
 
-    if name == "get_player_defense_stats":
-        player_id = str(arguments.get("player_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not player_id:
+
+@mcp.tool(description="Opponent FG% when defended by player.")
+async def get_player_defense_stats(player_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"player_id": player_id, "season": season}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
         url = f"{NBA_STATS_API}/leaguedashptdefend"
-        params = {
-            "Season": season,
-            "SeasonType": "Regular Season",
-            "PerMode": "Totals",
-            "DefenseCategory": "Overall",
-        }
+        params = {"Season": season, "SeasonType": "Regular Season", "PerMode": "Totals", "DefenseCategory": "Overall"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching defense stats. Please try again."
-
         rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
-        player_stats = next((r for r in rows if str(safe_get(r, 0)) == str(player_id)), None)
-        if not player_stats:
-            return f"No defense stats found for player ID {player_id} in season {season}."
-
-        player_name = safe_get(player_stats, 1, default="Player")
-        team = safe_get(player_stats, 3, default="N/A")
-        position = safe_get(player_stats, 4, default="N/A")
-        games = safe_get(player_stats, 6, default=0)
-        dfg_pct = safe_get(player_stats, 11, default=0)
-        normal_fg_pct = safe_get(player_stats, 12, default=0)
-        diff = safe_get(player_stats, 13, default=0)
-        result = f"Defensive Impact - {player_name} ({team}) [{season}]:\n\n"
-        result += f"Position: {position}\nGames: {games}\n\n"
-        result += f"Opponent FG% when defended: {format_stat(dfg_pct, True)}\n"
-        result += f"Opponent normal FG%: {format_stat(normal_fg_pct, True)}\n"
-        result += f"Difference: {format_stat(diff, True)}\n"
+        ps = next((r for r in rows if str(safe_get(r, 0)) == str(pid)), None)
+        if not ps:
+            return f"No defense stats found for player ID {pid} in season {season}."
+        result = f"Defensive Impact - {safe_get(ps, 1, default='Player')} ({safe_get(ps, 3, default='N/A')}) [{season}]:\n\n"
+        result += f"Position: {safe_get(ps, 4, default='N/A')}\nGames: {safe_get(ps, 6, default=0)}\n\n"
+        result += f"Opponent FG% when defended: {format_stat(safe_get(ps, 11, default=0), True)}\nOpponent normal FG%: {format_stat(safe_get(ps, 12, default=0), True)}\nDifference: {format_stat(safe_get(ps, 13, default=0), True)}\n"
         return result
+    return await _tool_impl("get_player_defense_stats", _args, _impl)
 
-    if name == "get_team_roster":
-        team_id = str(arguments.get("team_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not team_id:
+
+@mcp.tool(description="All-time leaders for a stat category.")
+async def get_all_time_leaders(stat_category: str = "points", limit: int = 10) -> list[TextContent]:
+    _args: dict[str, Any] = {"stat_category": stat_category, "limit": limit}
+
+    async def _impl():
+        sc = stat_category.lower()
+        lim = min(limit, 50)
+        sm = {"points": "PTSLeaders", "rebounds": "REBLeaders", "assists": "ASTLeaders", "steals": "STLLeaders", "blocks": "BLKLeaders", "games": "GPLeaders", "offensive_rebounds": "OREBLeaders", "defensive_rebounds": "DREBLeaders", "field_goals_made": "FGMLeaders", "field_goals_attempted": "FGALeaders", "field_goal_pct": "FG_PCTLeaders", "three_pointers_made": "FG3MLeaders", "three_pointers_attempted": "FG3ALeaders", "three_point_pct": "FG3_PCTLeaders", "free_throws_made": "FTMLeaders", "free_throws_attempted": "FTALeaders", "free_throw_pct": "FT_PCTLeaders", "turnovers": "TOVLeaders", "personal_fouls": "PFLeaders"}
+        if sc not in sm:
+            return f"Invalid stat category. Choose from: {', '.join(sorted(sm.keys()))}"
+        url = f"{NBA_STATS_API}/alltimeleadersgrids"
+        params = {"LeagueID": "00", "PerMode": "Totals", "SeasonType": "Regular Season", "TopX": str(lim)}
+        data = await fetch_nba_data(url, params)
+        if not data:
+            return "Error fetching all-time leaders. Please try again."
+        leaders_data = None
+        for rs in safe_get(data, "resultSets", default=[]):
+            if rs.get("name") == sm[sc]:
+                leaders_data = rs.get("rowSet", [])
+                break
+        if not leaders_data:
+            return f"No all-time leaders found for {sc}."
+        result = f"All-Time Career Leaders - {sc.replace('_', ' ').title()}:\n\n"
+        for i, p in enumerate(leaders_data, 1):
+            val = safe_get(p, 2, default=0)
+            if "pct" in sc:
+                vs = format_stat(val, is_percentage=True)
+            else:
+                try:
+                    vs = f"{int(float(val)):,}"
+                except (ValueError, TypeError):
+                    vs = str(val)
+            active = " ✓" if safe_get(p, 4, default=0) == 1 else ""
+            result += f"{i}. {safe_get(p, 1, default='Unknown')}: {vs}{active}\n"
+        if any(safe_get(p, 4, default=0) == 1 for p in leaders_data):
+            result += "\n✓ = Active player"
+        return result
+    return await _tool_impl("get_all_time_leaders", _args, _impl)
+
+
+@mcp.tool(description="Team roster.")
+async def get_team_roster(team_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"team_id": team_id, "season": season}
+
+    async def _impl():
+        tid = team_id.strip()
+        if not tid:
             return "Please provide team_id."
-
         url = f"{NBA_STATS_API}/commonteamroster"
-        params = {"TeamID": team_id, "Season": season}
+        params = {"TeamID": tid, "Season": season}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching roster. Please try again."
-
         roster_data = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not roster_data:
             return "No roster found for this team."
-
-        result = (
-            f"Team Roster ({season}) - Team ID {team_id} | Logo: {get_team_logo_url(team_id)}\n\n"
-        )
-        for player in roster_data:
-            player_name = safe_get(player, 3)
-            num = safe_get(player, 4)
-            pos = safe_get(player, 5)
-            pid = safe_get(player, 14, default="")  # PLAYER_ID often at 14
-            result += f"#{num} {player_name} - {pos}"
+        result = f"Team Roster ({season}) - Team ID {tid} | Logo: {get_team_logo_url(tid)}\n\n"
+        for p in roster_data:
+            pn = safe_get(p, 3)
+            num = safe_get(p, 4)
+            pos = safe_get(p, 5)
+            pid = safe_get(p, 14, default="")
+            result += f"#{num} {pn} - {pos}"
             if pid not in ("", "N/A"):
                 result += f" | Player ID: {pid} | Headshot: {get_player_headshot_url(pid)}"
             result += "\n"
         return result
+    return await _tool_impl("get_team_roster", _args, _impl)
 
-    if name == "get_standings":
-        season = str(arguments.get("season", get_current_season()))
+
+@mcp.tool(description="League standings.")
+async def get_standings(season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"season": season}
+
+    async def _impl():
         url = f"{NBA_STATS_API}/leaguestandingsv3"
         params = {"LeagueID": "00", "Season": season, "SeasonType": "Regular Season"}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching standings. Please try again."
-
         headers = safe_get(data, "resultSets", 0, "headers", default=[])
         rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not rows:
             return "No standings found."
 
-        def _idx(col: str, fallback: Optional[int] = None) -> Optional[int]:
+        def _idx(col, fb=None):
             try:
                 return headers.index(col)
             except Exception:
-                return fallback
+                return fb
 
-        team_name_idx = _idx("TeamName", 4)
-        conf_idx = _idx("Conference", 5)
-        wins_idx = _idx("WINS", 13)
-        losses_idx = _idx("LOSSES", 14)
-        pct_idx = _idx("WinPCT", 15)
-        team_id_idx = _idx("TeamID", _idx("TEAM_ID", None))
+        tni = _idx("TeamName", 4)
+        ci = _idx("Conference", 5)
+        wi = _idx("WINS", 13)
+        li = _idx("LOSSES", 14)
+        pi = _idx("WinPCT", 15)
+        tii = _idx("TeamID", _idx("TEAM_ID"))
+        east = [r for r in rows if safe_get(r, ci, default="") == "East"]
+        west = [r for r in rows if safe_get(r, ci, default="") != "East"]
 
-        east = [r for r in rows if safe_get(r, conf_idx, default="") == "East"]
-        west = [r for r in rows if safe_get(r, conf_idx, default="") != "East"]
-
-        # sort by win pct desc
-        def _pct(row: list[Any]) -> float:
+        def _pct(row):
             try:
-                return float(safe_get(row, pct_idx, default=0) or 0)
+                return float(safe_get(row, pi, default=0) or 0)
             except Exception:
                 return 0.0
-
         east.sort(key=_pct, reverse=True)
         west.sort(key=_pct, reverse=True)
-
         result = f"NBA Standings ({season}):\n\nEastern Conference:\n"
         for i, r in enumerate(east, 1):
-            name_ = safe_get(r, team_name_idx)
-            tid = safe_get(r, team_id_idx, default="") if team_id_idx is not None else ""
-            result += f"{i}. {name_}: {safe_get(r, wins_idx)}-{safe_get(r, losses_idx)} ({format_stat(safe_get(r, pct_idx))})"
+            tid = safe_get(r, tii, default="") if tii is not None else ""
+            result += f"{i}. {safe_get(r, tni)}: {safe_get(r, wi)}-{safe_get(r, li)} ({format_stat(safe_get(r, pi))})"
             if tid not in ("", "N/A"):
                 result += f" | Team ID: {tid} | Logo: {get_team_logo_url(tid)}"
             result += "\n"
-
         result += "\nWestern Conference:\n"
         for i, r in enumerate(west, 1):
-            name_ = safe_get(r, team_name_idx)
-            tid = safe_get(r, team_id_idx, default="") if team_id_idx is not None else ""
-            result += f"{i}. {name_}: {safe_get(r, wins_idx)}-{safe_get(r, losses_idx)} ({format_stat(safe_get(r, pct_idx))})"
+            tid = safe_get(r, tii, default="") if tii is not None else ""
+            result += f"{i}. {safe_get(r, tni)}: {safe_get(r, wi)}-{safe_get(r, li)} ({format_stat(safe_get(r, pi))})"
             if tid not in ("", "N/A"):
                 result += f" | Team ID: {tid} | Logo: {get_team_logo_url(tid)}"
             result += "\n"
-
         return result
+    return await _tool_impl("get_standings", _args, _impl)
 
-    if name == "get_schedule":
-        team_id = str(arguments.get("team_id", "")).strip()
-        days_ahead = min(int(arguments.get("days_ahead", 7) or 7), 90)
-        if not team_id:
+
+@mcp.tool(description="Current season per-game league leaders for a stat category (Points/Assists/Rebounds/etc.).")
+async def get_league_leaders(stat_type: str = "Points", season: str = "", limit: int = 10) -> list[TextContent]:
+    season = season or get_current_season()
+    limit = min(limit, 50)
+    _args: dict[str, Any] = {"stat_type": stat_type, "season": season, "limit": limit}
+
+    async def _impl():
+        sm = {"Points": "PTS", "Assists": "AST", "Rebounds": "REB", "Steals": "STL", "Blocks": "BLK", "FG%": "FG_PCT", "3P%": "FG3_PCT", "FT%": "FT_PCT"}
+        stat_category = sm.get(stat_type, sm.get(stat_type.title(), "PTS"))
+        url = f"{NBA_STATS_API}/leaguedashplayerstats"
+        params = {"LeagueID": "00", "Season": season, "SeasonType": "Regular Season", "PerMode": "PerGame", "MeasureType": "Base", "PlusMinus": "N", "PaceAdjust": "N", "Rank": "N", "Outcome": "", "Location": "", "Month": "0", "SeasonSegment": "", "DateFrom": "", "DateTo": "", "OpponentTeamID": "0", "VsConference": "", "VsDivision": "", "GameSegment": "", "Period": "0", "LastNGames": "0"}
+        data = await fetch_nba_data(url, params)
+        if not data:
+            return "Error fetching league leaders. Please try again."
+        headers = safe_get(data, "resultSets", 0, "headers", default=[])
+        rows = safe_get(data, "resultSets", 0, "rowSet", default=[])
+        if not rows or not headers:
+            return f"No data found for {stat_type} leaders."
+        try:
+            pii = headers.index("PLAYER_ID")
+        except ValueError:
+            pii = 0
+        try:
+            pni = headers.index("PLAYER_NAME")
+        except ValueError:
+            pni = 1
+        try:
+            tai = headers.index("TEAM_ABBREVIATION")
+        except ValueError:
+            tai = 3
+        if stat_category not in headers:
+            return f"Unsupported stat_type '{stat_type}'. Try one of: {', '.join(sorted(sm.keys()))}"
+        si = headers.index(stat_category)
+
+        def _val(row):
+            try:
+                return float(safe_get(row, si, default=0))
+            except Exception:
+                return 0.0
+        sorted_rows = sorted(rows, key=_val, reverse=True)
+        result = f"League Leaders - {stat_type} ({season}) [Per Game]:\n\n"
+        for i, row in enumerate(sorted_rows[:limit], 1):
+            val = safe_get(row, si, default="N/A")
+            if stat_category.endswith("_PCT"):
+                try:
+                    val_s = f"{float(val) * 100:.1f}%"
+                except Exception:
+                    val_s = str(val)
+            else:
+                val_s = str(val)
+            result += f"{i}. {safe_get(row, pni, default='Unknown')} ({safe_get(row, tai, default='N/A')}) - {val_s} | Player ID: {safe_get(row, pii, default='N/A')}\n"
+        return result
+    return await _tool_impl("get_league_leaders", _args, _impl)
+
+
+@mcp.tool(description="Team upcoming schedule.")
+async def get_schedule(team_id: str, days_ahead: int = 7) -> list[TextContent]:
+    days_ahead = min(days_ahead, 90)
+    _args: dict[str, Any] = {"team_id": team_id, "days_ahead": days_ahead}
+
+    async def _impl():
+        tid = team_id.strip()
+        if not tid:
             return "Please specify team_id."
-
         url = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
         data = await fetch_nba_data(url)
         if not data:
             return "Error fetching schedule. Please try again."
-
         game_dates = safe_get(data, "leagueSchedule", "gameDates", default=[])
         if not game_dates:
             return "No schedule data available."
-
         today = datetime.now()
-        team_id_int = int(team_id)
+        tid_int = int(tid)
         upcoming = []
-        for date_entry in game_dates:
-            for game in safe_get(date_entry, "games", default=[]):
-                home_id = safe_get(game, "homeTeam", "teamId")
-                away_id = safe_get(game, "awayTeam", "teamId")
-                if home_id == team_id_int or away_id == team_id_int:
-                    game_date_str = safe_get(game, "gameDateTimeEst")
-                    if game_date_str == "N/A":
+        for de in game_dates:
+            for game in safe_get(de, "games", default=[]):
+                hid = safe_get(game, "homeTeam", "teamId")
+                aid = safe_get(game, "awayTeam", "teamId")
+                if hid == tid_int or aid == tid_int:
+                    gds = safe_get(game, "gameDateTimeEst")
+                    if gds == "N/A":
                         continue
                     try:
-                        game_date = datetime.fromisoformat(
-                            str(game_date_str).replace("Z", "+00:00")
-                        )
+                        gd = datetime.fromisoformat(str(gds).replace("Z", "+00:00"))
                     except ValueError:
                         continue
-                    if game_date.date() >= today.date():
-                        days_until = (game_date.date() - today.date()).days
-                        if days_until <= days_ahead:
-                            upcoming.append((game_date, game))
+                    if gd.date() >= today.date() and (gd.date() - today.date()).days <= days_ahead:
+                        upcoming.append((gd, game))
         upcoming.sort(key=lambda x: x[0])
         if not upcoming:
             return f"No upcoming games found within the next {days_ahead} days for this team."
-
-        team_name = NBA_TEAMS.get(team_id_int, f"Team {team_id}")
-        result = f"Upcoming Games for {team_name} (Team ID {team_id}):\n"
-        result += f"(Next {days_ahead} days) | Logo: {get_team_logo_url(team_id)}\n\n"
-        for game_date, game in upcoming:
-            home_team = safe_get(game, "homeTeam", default={})
-            away_team = safe_get(game, "awayTeam", default={})
-            home_name = f"{safe_get(home_team, 'teamCity')} {safe_get(home_team, 'teamName')}"
-            away_name = f"{safe_get(away_team, 'teamCity')} {safe_get(away_team, 'teamName')}"
-            result += f"{game_date.strftime('%Y-%m-%d')} - {away_name} @ {home_name}\n"
-            result += (
-                f"  Arena: {safe_get(game, 'arenaName')} | Game ID: {safe_get(game, 'gameId')}\n\n"
-            )
+        tn = NBA_TEAMS.get(tid_int, f"Team {tid}")
+        result = f"Upcoming Games for {tn} (Team ID {tid}):\n(Next {days_ahead} days) | Logo: {get_team_logo_url(tid)}\n\n"
+        for gd, game in upcoming:
+            ht = safe_get(game, "homeTeam", default={})
+            at = safe_get(game, "awayTeam", default={})
+            result += f"{gd.strftime('%Y-%m-%d')} - {safe_get(at, 'teamCity')} {safe_get(at, 'teamName')} @ {safe_get(ht, 'teamCity')} {safe_get(ht, 'teamName')}\n"
+            result += f"  Arena: {safe_get(game, 'arenaName')} | Game ID: {safe_get(game, 'gameId')}\n\n"
         return result
+    return await _tool_impl("get_schedule", _args, _impl)
 
-    if name == "get_player_awards":
-        player_id = str(arguments.get("player_id", "")).strip()
-        if not player_id:
+
+@mcp.tool(description="Player awards/accolades.")
+async def get_player_awards(player_id: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"player_id": player_id}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
         url = f"{NBA_STATS_API}/playerawards"
-        params = {"PlayerID": player_id}
+        params = {"PlayerID": pid}
         data = await fetch_nba_data(url, params)
         if not data:
             return "Error fetching player awards. Please try again."
-
         headers = safe_get(data, "resultSets", 0, "headers", default=[])
         awards = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not awards:
             return "No awards found for this player."
 
-        def _idx(col: str, fallback: int) -> int:
+        def _idx(col, fb):
             try:
                 return headers.index(col)
             except Exception:
-                return fallback
-
-        desc_idx = _idx("DESCRIPTION", 4)
-        season_idx = _idx("SEASON", 6)
-        team_idx = _idx("TEAM", 3)
-
+                return fb
+        di = _idx("DESCRIPTION", 4)
+        si = _idx("SEASON", 6)
+        ti = _idx("TEAM", 3)
         first = awards[0]
-        player_name = f"{safe_get(first, 1)} {safe_get(first, 2)}".strip()
-        result = f"Awards and Accolades - {player_name} (Player ID {player_id})\n\n"
-        result += f"Headshot: {get_player_headshot_url(player_id)}\n\n"
-
-        for award in awards[:50]:
-            result += f"{safe_get(award, season_idx)}: {safe_get(award, desc_idx)}"
-            t = safe_get(award, team_idx, default="")
+        pn = f"{safe_get(first, 1)} {safe_get(first, 2)}".strip()
+        result = f"Awards and Accolades - {pn} (Player ID {pid})\n\nHeadshot: {get_player_headshot_url(pid)}\n\n"
+        for a in awards[:50]:
+            result += f"{safe_get(a, si)}: {safe_get(a, di)}"
+            t = safe_get(a, ti, default="")
             if t and t != "N/A":
                 result += f" ({t})"
             result += "\n"
         if len(awards) > 50:
             result += f"\n... and {len(awards) - 50} more."
         return result
+    return await _tool_impl("get_player_awards", _args, _impl)
 
-    if name == "get_season_awards":
-        season = str(arguments.get("season", get_current_season()))
-        # MVP-only minimal, as in prior implementation
+
+@mcp.tool(description="Major awards for a season.")
+async def get_season_awards(season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"season": season}
+
+    async def _impl():
         mvp_map = {
-            "2023-24": ("Joel Embiid", "1610612755"),
-            "2022-23": ("Joel Embiid", "1610612755"),
-            "2021-22": ("Nikola Jokic", "1610612743"),
-            "2020-21": ("Nikola Jokic", "1610612743"),
-            "2019-20": ("Giannis Antetokounmpo", "1610612749"),
-            "2018-19": ("Giannis Antetokounmpo", "1610612749"),
-            "2017-18": ("James Harden", "1610612745"),
-            "2016-17": ("Russell Westbrook", "1610612760"),
-            "2015-16": ("Stephen Curry", "1610612744"),
-            "2014-15": ("Stephen Curry", "1610612744"),
+            "2023-24": ("Joel Embiid", "1610612755"), "2022-23": ("Joel Embiid", "1610612755"),
+            "2021-22": ("Nikola Jokic", "1610612743"), "2020-21": ("Nikola Jokic", "1610612743"),
+            "2019-20": ("Giannis Antetokounmpo", "1610612749"), "2018-19": ("Giannis Antetokounmpo", "1610612749"),
+            "2017-18": ("James Harden", "1610612745"), "2016-17": ("Russell Westbrook", "1610612760"),
+            "2015-16": ("Stephen Curry", "1610612744"), "2014-15": ("Stephen Curry", "1610612744"),
         }
         if season not in mvp_map:
             return f"Award data for {season} season is not available. Use get_player_awards for individual awards."
-        mvp_name, team_id = mvp_map[season]
-        result = f"Major Awards - {season} Season\n\n"
-        result += f"MVP: {mvp_name} | Team ID: {team_id} | Logo: {get_team_logo_url(team_id)}\n"
-        return result
+        mvp_name, tid = mvp_map[season]
+        return f"Major Awards - {season} Season\n\nMVP: {mvp_name} | Team ID: {tid} | Logo: {get_team_logo_url(tid)}\n"
+    return await _tool_impl("get_season_awards", _args, _impl)
 
-    if name == "get_shot_chart":
-        player_id = str(arguments.get("player_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        game_id = str(arguments.get("game_id", "")).strip()
-        if not player_id:
+
+@mcp.tool(description="Shot chart data summary.")
+async def get_shot_chart(player_id: str, season: str = "", game_id: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"player_id": player_id, "season": season, "game_id": game_id}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
-        params = {
-            "PlayerID": player_id,
-            "Season": season,
-            "SeasonType": "Regular Season",
-            "TeamID": "0",
-            "GameID": game_id,
-            "Outcome": "",
-            "Location": "",
-            "Month": "0",
-            "SeasonSegment": "",
-            "DateFrom": "",
-            "DateTo": "",
-            "OpponentTeamID": "0",
-            "VsConference": "",
-            "VsDivision": "",
-            "Position": "",
-            "RookieYear": "",
-            "GameSegment": "",
-            "Period": "0",
-            "LastNGames": "0",
-            "ContextMeasure": "FGA",
-        }
+        params = {"PlayerID": pid, "Season": season, "SeasonType": "Regular Season", "TeamID": "0", "GameID": game_id.strip(), "Outcome": "", "Location": "", "Month": "0", "SeasonSegment": "", "DateFrom": "", "DateTo": "", "OpponentTeamID": "0", "VsConference": "", "VsDivision": "", "Position": "", "RookieYear": "", "GameSegment": "", "Period": "0", "LastNGames": "0", "ContextMeasure": "FGA"}
         url = f"{NBA_STATS_API}/shotchartdetail"
         data = await fetch_nba_data(url, params=params)
         if not data:
             return "Failed to fetch shot chart data."
-
         headers = safe_get(data, "resultSets", 0, "headers", default=[])
         shots = safe_get(data, "resultSets", 0, "rowSet", default=[])
         if not shots:
             return f"No shot data found for this player in {season}."
-
         try:
-            made_idx = headers.index("SHOT_MADE_FLAG")
-            dist_idx = headers.index("SHOT_DISTANCE")
+            mi = headers.index("SHOT_MADE_FLAG")
+            di = headers.index("SHOT_DISTANCE")
         except ValueError:
             return "Error parsing shot chart data structure."
-
         total = len(shots)
-        made = sum(1 for s in shots if safe_get(s, made_idx) == 1)
+        made = sum(1 for s in shots if safe_get(s, mi) == 1)
         pct = (made / total * 100) if total > 0 else 0.0
-        avg_dist = 0.0
         try:
-            avg_dist = sum(float(safe_get(s, dist_idx, default=0) or 0) for s in shots) / total
+            avg_dist = sum(float(safe_get(s, di, default=0) or 0) for s in shots) / total
         except Exception:
             avg_dist = 0.0
-
-        result = f"Shot Chart Summary - Player {player_id} ({season})\n\n"
-        result += f"Headshot: {get_player_headshot_url(player_id)}\n"
+        result = f"Shot Chart Summary - Player {pid} ({season})\n\nHeadshot: {get_player_headshot_url(pid)}\n"
         result += f"Shots: {made}/{total} ({pct:.1f}%) | Avg Distance: {avg_dist:.1f} ft\n"
-        result += (
-            "Note: For visualization, use the raw coordinates from the shotchartdetail endpoint."
-        )
+        result += "Note: For visualization, use the raw coordinates from the shotchartdetail endpoint."
         return result
+    return await _tool_impl("get_shot_chart", _args, _impl)
 
-    if name == "get_shooting_splits":
-        player_id = str(arguments.get("player_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not player_id:
+
+@mcp.tool(description="Shooting splits summary.")
+async def get_shooting_splits(player_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"player_id": player_id, "season": season}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
-        params = {
-            "PlayerID": player_id,
-            "Season": season,
-            "SeasonType": "Regular Season",
-            "PerMode": "Totals",
-            "MeasureType": "Base",
-            "PlusMinus": "N",
-            "PaceAdjust": "N",
-            "Rank": "N",
-            "Outcome": "",
-            "Location": "",
-            "Month": "0",
-            "SeasonSegment": "",
-            "DateFrom": "",
-            "DateTo": "",
-            "OpponentTeamID": "0",
-            "VsConference": "",
-            "VsDivision": "",
-            "GameSegment": "",
-            "Period": "0",
-            "LastNGames": "0",
-        }
+        params = {"PlayerID": pid, "Season": season, "SeasonType": "Regular Season", "PerMode": "Totals", "MeasureType": "Base", "PlusMinus": "N", "PaceAdjust": "N", "Rank": "N", "Outcome": "", "Location": "", "Month": "0", "SeasonSegment": "", "DateFrom": "", "DateTo": "", "OpponentTeamID": "0", "VsConference": "", "VsDivision": "", "GameSegment": "", "Period": "0", "LastNGames": "0"}
         url = f"{NBA_STATS_API}/playerdashboardbyshootingsplits"
         data = await fetch_nba_data(url, params=params)
         if not data:
             return "Failed to fetch shooting splits data."
-
         result_sets = safe_get(data, "resultSets", default=[])
-        overall = next(
-            (rs for rs in result_sets if safe_get(rs, "name") == "OverallPlayerDashboard"), None
-        )
+        overall = next((rs for rs in result_sets if safe_get(rs, "name") == "OverallPlayerDashboard"), None)
         if not overall:
             return f"No shooting data found for {season}."
-
         headers = safe_get(overall, "headers", default=[])
         rows = safe_get(overall, "rowSet", default=[])
         if not rows:
             return f"No shooting data available for {season}."
-
         row = rows[0]
-        player_name = safe_get(row, 1, default="Player")
+        pn = safe_get(row, 1, default="Player")
         try:
-            fgm_idx = headers.index("FGM")
-            fga_idx = headers.index("FGA")
-            fg_pct_idx = headers.index("FG_PCT")
-            fg3m_idx = headers.index("FG3M")
-            fg3a_idx = headers.index("FG3A")
-            fg3_pct_idx = headers.index("FG3_PCT")
+            fgmi = headers.index("FGM")
+            fgai = headers.index("FGA")
+            fgpi = headers.index("FG_PCT")
+            fg3mi = headers.index("FG3M")
+            fg3ai = headers.index("FG3A")
+            fg3pi = headers.index("FG3_PCT")
         except ValueError:
             return "Unable to parse shooting splits."
-
-        fgm = safe_get(row, fgm_idx, default=0)
-        fga = safe_get(row, fga_idx, default=0)
-        fg_pct = safe_get(row, fg_pct_idx, default=0)
-        fg3m = safe_get(row, fg3m_idx, default=0)
-        fg3a = safe_get(row, fg3a_idx, default=0)
-        fg3_pct = safe_get(row, fg3_pct_idx, default=0)
-
-        result = f"Shooting Splits - {player_name} ({season})\n\n"
-        result += f"Player ID: {player_id} | Headshot: {get_player_headshot_url(player_id)}\n"
-        result += f"FG: {fgm}/{fga} ({format_stat(fg_pct, True)})\n"
-        result += f"3P: {fg3m}/{fg3a} ({format_stat(fg3_pct, True)})\n"
+        result = f"Shooting Splits - {pn} ({season})\n\nPlayer ID: {pid} | Headshot: {get_player_headshot_url(pid)}\n"
+        result += f"FG: {safe_get(row, fgmi, default=0)}/{safe_get(row, fgai, default=0)} ({format_stat(safe_get(row, fgpi, default=0), True)})\n"
+        result += f"3P: {safe_get(row, fg3mi, default=0)}/{safe_get(row, fg3ai, default=0)} ({format_stat(safe_get(row, fg3pi, default=0), True)})\n"
         return result
+    return await _tool_impl("get_shooting_splits", _args, _impl)
 
-    if name == "get_play_by_play":
-        game_id = str(arguments.get("game_id", "")).strip()
-        start_period = int(arguments.get("start_period", 1) or 1)
-        end_period = int(arguments.get("end_period", 10) or 10)
-        if not game_id:
+
+@mcp.tool(description="Play-by-play summary.")
+async def get_play_by_play(game_id: str, start_period: int = 1, end_period: int = 10) -> list[TextContent]:
+    _args: dict[str, Any] = {"game_id": game_id, "start_period": start_period, "end_period": end_period}
+
+    async def _impl():
+        gid = game_id.strip()
+        if not gid:
             return "Please provide game_id."
-
-        params = {"GameID": game_id, "StartPeriod": start_period, "EndPeriod": end_period}
+        params = {"GameID": gid, "StartPeriod": start_period, "EndPeriod": end_period}
         url = f"{NBA_STATS_API}/playbyplayv2"
         data = await fetch_nba_data(url, params=params)
         if not data:
             return "Failed to fetch play-by-play data."
-
         result_sets = safe_get(data, "resultSets", default=[])
         pbp = next((rs for rs in result_sets if safe_get(rs, "name") == "PlayByPlay"), None)
         if not pbp:
-            return f"No play-by-play data found for game {game_id}."
-
+            return f"No play-by-play data found for game {gid}."
         headers = safe_get(pbp, "headers", default=[])
         plays = safe_get(pbp, "rowSet", default=[])
         if not plays:
-            return f"No plays found for game {game_id}."
+            return f"No plays found for game {gid}."
 
-        def _idx(col: str, fallback: int) -> int:
+        def _idx(col, fb):
             try:
                 return headers.index(col)
             except ValueError:
-                return fallback
-
-        period_idx = _idx("PERIOD", 4)
-        time_idx = _idx("PCTIMESTRING", 6)
-        home_desc_idx = _idx("HOMEDESCRIPTION", 7)
-        visitor_desc_idx = _idx("VISITORDESCRIPTION", 9)
-        score_idx = _idx("SCORE", 10)
-
-        result = f"Play-by-Play (sample) - Game {game_id}\nShowing periods {start_period} to {end_period}\n\n"
+                return fb
+        pi = _idx("PERIOD", 4)
+        ti = _idx("PCTIMESTRING", 6)
+        hdi = _idx("HOMEDESCRIPTION", 7)
+        vdi = _idx("VISITORDESCRIPTION", 9)
+        sci = _idx("SCORE", 10)
+        result = f"Play-by-Play (sample) - Game {gid}\nShowing periods {start_period} to {end_period}\n\n"
         count = 0
         for play in plays:
-            desc = safe_get(play, home_desc_idx, default="") or safe_get(
-                play, visitor_desc_idx, default=""
-            )
+            desc = safe_get(play, hdi, default="") or safe_get(play, vdi, default="")
             if not desc or desc == "N/A":
                 continue
             count += 1
-            result += f"Q{safe_get(play, period_idx, default='')} {safe_get(play, time_idx, default='')}: {desc}"
-            s = safe_get(play, score_idx, default="")
+            result += f"Q{safe_get(play, pi, default='')} {safe_get(play, ti, default='')}: {desc}"
+            s = safe_get(play, sci, default="")
             if s and s != "N/A":
                 result += f" [{s}]"
             result += "\n"
@@ -2298,236 +1668,162 @@ async def _call_tool_text(name: str, arguments: Any) -> str:
         if len(plays) > count:
             result += f"\n... showing first {count} plays (out of {len(plays)})."
         return result
+    return await _tool_impl("get_play_by_play", _args, _impl)
 
-    if name == "get_game_rotation":
-        game_id = str(arguments.get("game_id", "")).strip()
-        if not game_id:
+
+@mcp.tool(description="Rotation/substitution summary.")
+async def get_game_rotation(game_id: str) -> list[TextContent]:
+    _args: dict[str, Any] = {"game_id": game_id}
+
+    async def _impl():
+        gid = game_id.strip()
+        if not gid:
             return "Please provide game_id."
-
-        params = {"GameID": game_id, "LeagueID": "00"}
+        params = {"GameID": gid, "LeagueID": "00"}
         url = f"{NBA_STATS_API}/gamerotation"
         data = await fetch_nba_data(url, params=params)
         if not data:
             return "Failed to fetch game rotation data."
-
         result_sets = safe_get(data, "resultSets", default=[])
         away = next((rs for rs in result_sets if safe_get(rs, "name") == "AwayTeam"), None)
         home = next((rs for rs in result_sets if safe_get(rs, "name") == "HomeTeam"), None)
         if not away and not home:
-            return f"No rotation data found for game {game_id}."
+            return f"No rotation data found for game {gid}."
 
-        def _summ(team_data: dict, label: str) -> str:
+        def _summ(team_data, label):
             headers = safe_get(team_data, "headers", default=[])
             rows = safe_get(team_data, "rowSet", default=[])
             if not rows:
                 return ""
             try:
-                first_idx = headers.index("PLAYER_FIRST")
-                last_idx = headers.index("PLAYER_LAST")
-                pts_idx = headers.index("PLAYER_PTS")
+                fi = headers.index("PLAYER_FIRST")
+                li = headers.index("PLAYER_LAST")
+                pi = headers.index("PLAYER_PTS")
             except ValueError:
                 return ""
-            # aggregate points by player name
             pts_by = {}
             for r in rows:
-                name_ = f"{safe_get(r, first_idx, default='')} {safe_get(r, last_idx, default='')}".strip()
+                n = f"{safe_get(r, fi, default='')} {safe_get(r, li, default='')}".strip()
                 try:
-                    pts_by[name_] = max(
-                        pts_by.get(name_, 0), int(float(safe_get(r, pts_idx, default=0) or 0))
-                    )
+                    pts_by[n] = max(pts_by.get(n, 0), int(float(safe_get(r, pi, default=0) or 0)))
                 except Exception:
-                    pts_by[name_] = pts_by.get(name_, 0)
+                    pts_by[n] = pts_by.get(n, 0)
             top = sorted(pts_by.items(), key=lambda x: x[1], reverse=True)[:10]
             out = f"{label} Rotation Summary (top points):\n"
             for n, p in top:
                 out += f"  {n}: {p} pts\n"
             return out + "\n"
 
-        result = f"Game Rotation Summary - Game {game_id}\n\n"
+        result = f"Game Rotation Summary - Game {gid}\n\n"
         if away:
             result += _summ(away, "Away")
         if home:
             result += _summ(home, "Home")
         return result
+    return await _tool_impl("get_game_rotation", _args, _impl)
 
-    if name == "get_player_advanced_stats":
-        player_id = str(arguments.get("player_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not player_id:
+
+@mcp.tool(description="Player advanced metrics summary.")
+async def get_player_advanced_stats(player_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"player_id": player_id, "season": season}
+
+    async def _impl():
+        pid = player_id.strip()
+        if not pid:
             return "Please provide player_id."
-
-        params = {
-            "PlayerID": player_id,
-            "Season": season,
-            "SeasonType": "Regular Season",
-            "MeasureType": "Advanced",
-            "PerMode": "PerGame",
-            "PlusMinus": "N",
-            "PaceAdjust": "N",
-            "Rank": "N",
-            "LastNGames": "0",
-            "Month": "0",
-            "OpponentTeamID": "0",
-            "Period": "0",
-            "DateFrom": "",
-            "DateTo": "",
-            "GameSegment": "",
-            "LeagueID": "00",
-            "Location": "",
-            "Outcome": "",
-            "PORound": "0",
-            "SeasonSegment": "",
-            "ShotClockRange": "",
-            "VsConference": "",
-            "VsDivision": "",
-        }
+        params = {"PlayerID": pid, "Season": season, "SeasonType": "Regular Season", "MeasureType": "Advanced", "PerMode": "PerGame", "PlusMinus": "N", "PaceAdjust": "N", "Rank": "N", "LastNGames": "0", "Month": "0", "OpponentTeamID": "0", "Period": "0", "DateFrom": "", "DateTo": "", "GameSegment": "", "LeagueID": "00", "Location": "", "Outcome": "", "PORound": "0", "SeasonSegment": "", "ShotClockRange": "", "VsConference": "", "VsDivision": ""}
         url = f"{NBA_STATS_API}/playerdashboardbygeneralsplits"
         data = await fetch_nba_data(url, params=params)
         if not data:
             return "Failed to fetch player advanced stats."
-
         result_sets = safe_get(data, "resultSets", default=[])
-        overall = next(
-            (rs for rs in result_sets if safe_get(rs, "name") == "OverallPlayerDashboard"), None
-        )
+        overall = next((rs for rs in result_sets if safe_get(rs, "name") == "OverallPlayerDashboard"), None)
         if not overall:
             return f"No advanced stats found for {season}."
-
         headers = safe_get(overall, "headers", default=[])
         rows = safe_get(overall, "rowSet", default=[])
         if not rows:
             return f"No advanced stats available for {season}."
-
         row = rows[0]
 
-        def _idx(col: str) -> Optional[int]:
+        def _idx(col):
             try:
                 return headers.index(col)
             except ValueError:
                 return None
-
-        name_idx = _idx("PLAYER_NAME") or 1
-        player_name = safe_get(row, name_idx, default="Player")
-        off_idx = _idx("OFF_RATING")
-        def_idx = _idx("DEF_RATING")
-        net_idx = _idx("NET_RATING")
-        ts_idx = _idx("TS_PCT")
-        usg_idx = _idx("USG_PCT")
-
-        result = f"Advanced Stats - {player_name} ({season})\n\n"
-        result += f"Player ID: {player_id} | Headshot: {get_player_headshot_url(player_id)}\n"
-        if off_idx is not None:
-            result += f"OffRtg: {format_stat(safe_get(row, off_idx))}\n"
-        if def_idx is not None:
-            result += f"DefRtg: {format_stat(safe_get(row, def_idx))}\n"
-        if net_idx is not None:
-            result += f"NetRtg: {format_stat(safe_get(row, net_idx))}\n"
-        if ts_idx is not None:
-            result += f"TS%: {format_stat(safe_get(row, ts_idx), True)}\n"
-        if usg_idx is not None:
-            result += f"USG%: {format_stat(safe_get(row, usg_idx), True)}\n"
+        ni = _idx("PLAYER_NAME") or 1
+        result = f"Advanced Stats - {safe_get(row, ni, default='Player')} ({season})\n\nPlayer ID: {pid} | Headshot: {get_player_headshot_url(pid)}\n"
+        for col, label in [("OFF_RATING", "OffRtg"), ("DEF_RATING", "DefRtg"), ("NET_RATING", "NetRtg")]:
+            idx = _idx(col)
+            if idx is not None:
+                result += f"{label}: {format_stat(safe_get(row, idx))}\n"
+        for col, label in [("TS_PCT", "TS%"), ("USG_PCT", "USG%")]:
+            idx = _idx(col)
+            if idx is not None:
+                result += f"{label}: {format_stat(safe_get(row, idx), True)}\n"
         return result
+    return await _tool_impl("get_player_advanced_stats", _args, _impl)
 
-    if name == "get_team_advanced_stats":
-        team_id = str(arguments.get("team_id", "")).strip()
-        season = str(arguments.get("season", get_current_season()))
-        if not team_id:
+
+@mcp.tool(description="Team advanced metrics summary.")
+async def get_team_advanced_stats(team_id: str, season: str = "") -> list[TextContent]:
+    season = season or get_current_season()
+    _args: dict[str, Any] = {"team_id": team_id, "season": season}
+
+    async def _impl():
+        tid = team_id.strip()
+        if not tid:
             return "Please provide team_id."
-
-        params = {
-            "TeamID": team_id,
-            "Season": season,
-            "SeasonType": "Regular Season",
-            "MeasureType": "Advanced",
-            "PerMode": "PerGame",
-            "PlusMinus": "N",
-            "PaceAdjust": "N",
-            "Rank": "N",
-            "LastNGames": "0",
-            "Month": "0",
-            "OpponentTeamID": "0",
-            "Period": "0",
-            "DateFrom": "",
-            "DateTo": "",
-            "GameSegment": "",
-            "LeagueID": "00",
-            "Location": "",
-            "Outcome": "",
-            "PORound": "0",
-            "SeasonSegment": "",
-            "ShotClockRange": "",
-            "VsConference": "",
-            "VsDivision": "",
-        }
+        params = {"TeamID": tid, "Season": season, "SeasonType": "Regular Season", "MeasureType": "Advanced", "PerMode": "PerGame", "PlusMinus": "N", "PaceAdjust": "N", "Rank": "N", "LastNGames": "0", "Month": "0", "OpponentTeamID": "0", "Period": "0", "DateFrom": "", "DateTo": "", "GameSegment": "", "LeagueID": "00", "Location": "", "Outcome": "", "PORound": "0", "SeasonSegment": "", "ShotClockRange": "", "VsConference": "", "VsDivision": ""}
         url = f"{NBA_STATS_API}/teamdashboardbygeneralsplits"
         data = await fetch_nba_data(url, params=params)
         if not data:
             return "Failed to fetch team advanced stats."
-
         result_sets = safe_get(data, "resultSets", default=[])
-        overall = next(
-            (rs for rs in result_sets if safe_get(rs, "name") == "OverallTeamDashboard"), None
-        )
+        overall = next((rs for rs in result_sets if safe_get(rs, "name") == "OverallTeamDashboard"), None)
         if not overall:
             return f"No advanced stats found for {season}."
-
         headers = safe_get(overall, "headers", default=[])
         rows = safe_get(overall, "rowSet", default=[])
         if not rows:
             return f"No advanced stats available for {season}."
-
         row = rows[0]
 
-        def _idx(col: str) -> Optional[int]:
+        def _idx(col):
             try:
                 return headers.index(col)
             except ValueError:
                 return None
-
-        name_idx = _idx("TEAM_NAME") or _idx("GROUP_VALUE") or 1
-        team_name = safe_get(row, name_idx, default="Team")
-        off_idx = _idx("OFF_RATING")
-        def_idx = _idx("DEF_RATING")
-        net_idx = _idx("NET_RATING")
-        pace_idx = _idx("PACE")
-        result = f"Advanced Stats - {team_name} ({season})\n\n"
-        result += f"Team ID: {team_id} | Logo: {get_team_logo_url(team_id)}\n"
-        if off_idx is not None:
-            result += f"OffRtg: {format_stat(safe_get(row, off_idx))}\n"
-        if def_idx is not None:
-            result += f"DefRtg: {format_stat(safe_get(row, def_idx))}\n"
-        if net_idx is not None:
-            result += f"NetRtg: {format_stat(safe_get(row, net_idx))}\n"
-        if pace_idx is not None:
-            result += f"Pace: {format_stat(safe_get(row, pace_idx))}\n"
+        ni = _idx("TEAM_NAME") or _idx("GROUP_VALUE") or 1
+        result = f"Advanced Stats - {safe_get(row, ni, default='Team')} ({season})\n\nTeam ID: {tid} | Logo: {get_team_logo_url(tid)}\n"
+        for col, label in [("OFF_RATING", "OffRtg"), ("DEF_RATING", "DefRtg"), ("NET_RATING", "NetRtg"), ("PACE", "Pace")]:
+            idx = _idx(col)
+            if idx is not None:
+                result += f"{label}: {format_stat(safe_get(row, idx))}\n"
         return result
-
-    return f"Unknown tool: {name}"
-
-
-# ==================== MCP call_tool (JSON-only) ====================
+    return await _tool_impl("get_team_advanced_stats", _args, _impl)
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: Any) -> list[TextContent]:
-    try:
-        text = await _call_tool_text(name, arguments)
-        return _wrap_tool_result(tool_name=name, arguments=arguments, text=text)
-    except Exception as e:  # pragma: no cover
-        logger.error(f"Error in {name}: {e}", exc_info=True)
-        return _wrap_tool_result(
-            tool_name=name, arguments=arguments, error=f"{type(e).__name__}: {e}"
-        )
+# ==================== Entrypoints ====================
 
 
 async def async_main() -> None:
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        logger.info("NBA MCP Server starting...")
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    """Run the server using stdio transport (for backward compatibility)."""
+    await mcp.run_stdio_async()
 
 
 def main() -> None:
-    asyncio.run(async_main())
+    """Run the server with configurable transport."""
+    import argparse
+    parser = argparse.ArgumentParser(description="NBA MCP Server")
+    parser.add_argument("--transport", choices=["stdio", "sse", "streamable-http"], default="stdio")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+    mcp.run(transport=args.transport)
 
 
 if __name__ == "__main__":

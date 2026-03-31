@@ -4,7 +4,7 @@ import asyncio
 
 from nba_mcp_server.server import async_main
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
 
 
 def main():

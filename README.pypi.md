@@ -2,8 +2,8 @@
 
 Access NBA statistics via the Model Context Protocol (MCP).
 
-This package runs an **MCP stdio server** that exposes **30 NBA tools** (live scores, box scores, standings, player/team stats, play-by-play, shot charts, etc.).
-It is designed for **agents and UIs** that want structured outputs.
+This package runs an **MCP server** that exposes **30 NBA tools** (live scores, box scores, standings, player/team stats, play-by-play, shot charts, etc.).
+Supports **stdio**, **streamable HTTP**, and **SSE** transports. Designed for **agents and UIs** that want structured outputs.
 
 **No API key required.**
 
@@ -102,7 +102,7 @@ Tool responses include public CDN URLs (no API key required):
 - Shot charts and shooting analytics
 - Historical NBA data
 
-📖 **[Full Documentation & Tool Reference →](https://github.com/labeveryday/nba_mcp_server)**
+📖 **[Full Documentation & Tool Reference →](https://github.com/labeveryday/nba-stats-mcp)**
 
 ## Requirements
 
@@ -111,4 +111,4 @@ Tool responses include public CDN URLs (no API key required):
 
 ## License
 
-MIT License - See [LICENSE](https://github.com/labeveryday/nba_mcp_server/blob/main/LICENSE) for details.
+MIT License - See [LICENSE](https://github.com/labeveryday/nba-stats-mcp/blob/main/LICENSE) for details.

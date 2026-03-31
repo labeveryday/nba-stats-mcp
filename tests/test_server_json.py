@@ -6,7 +6,14 @@ from unittest.mock import patch
 import pytest
 from mcp.types import TextContent
 
-from nba_mcp_server.server import call_tool, fetch_nba_data, list_tools, server
+from nba_mcp_server.server import (
+    fetch_nba_data,
+    find_game_id,
+    get_all_teams,
+    get_league_leaders,
+    mcp,
+    resolve_player_id,
+)
 
 
 def _as_json(result: list[TextContent]) -> dict:
@@ -17,19 +24,19 @@ def _as_json(result: list[TextContent]) -> dict:
 
 class TestJsonServerBasics:
     def test_server_instance(self):
-        assert server is not None
-        assert server.name == "nba-stats-server"
+        assert mcp is not None
+        assert mcp.name == "nba-stats-mcp"
 
     @pytest.mark.asyncio
     async def test_list_tools_count(self):
-        tools = await list_tools()
+        tools = await mcp.list_tools()
         assert len(tools) == 30
 
 
 class TestJsonEnvelope:
     @pytest.mark.asyncio
     async def test_get_all_teams_returns_json(self):
-        payload = _as_json(await call_tool("get_all_teams", {}))
+        payload = _as_json(await get_all_teams())
         assert payload["entity_type"] == "tool_result"
         assert payload["tool_name"] == "get_all_teams"
         assert "text" in payload
@@ -81,7 +88,7 @@ class TestJsonEnvelope:
         with patch("nba_mcp_server.server.http_client") as mock_client:
             mock_client.get.return_value = mock_response
             payload = _as_json(
-                await call_tool("resolve_player_id", {"query": "LeBron", "limit": 5})
+                await resolve_player_id(query="LeBron", limit=5)
             )
 
         assert payload["tool_name"] == "resolve_player_id"
@@ -120,7 +127,7 @@ class TestJsonEnvelope:
         with patch("nba_mcp_server.server.fetch_nba_data") as mock_fetch:
             mock_fetch.return_value = schedule_data
             payload = _as_json(
-                await call_tool("find_game_id", {"home_team": "Lakers", "away_team": "Warriors"})
+                await find_game_id(home_team="Lakers", away_team="Warriors")
             )
 
         assert "0022500123" in payload["text"]
@@ -142,9 +149,7 @@ class TestJsonEnvelope:
         with patch("nba_mcp_server.server.fetch_nba_data") as mock_fetch:
             mock_fetch.return_value = mock_data
             payload = _as_json(
-                await call_tool(
-                    "get_league_leaders", {"stat_type": "Points", "season": "2024-25", "limit": 2}
-                )
+                await get_league_leaders(stat_type="Points", season="2024-25", limit=2)
             )
 
         assert payload["tool_name"] == "get_league_leaders"
@@ -167,12 +172,14 @@ class TestFetchNBAData:
 
 class TestAllToolsImplemented:
     @pytest.mark.asyncio
-    async def test_no_tool_returns_unknown_tool(self):
-        # Patch network fetches so we don't rely on NBA endpoints during unit tests.
+    async def test_all_tools_return_valid_json(self):
+        """Verify all 30 tools return valid JSON envelopes (no 'Unknown tool' text)."""
+        import nba_mcp_server.server as srv
+
         with patch("nba_mcp_server.server.fetch_nba_data") as mock_fetch:
             mock_fetch.return_value = None
 
-            tools = await list_tools()
+            tools = await mcp.list_tools()
             tool_names = [t.name for t in tools]
             assert len(tool_names) == 30
 
@@ -211,6 +218,6 @@ class TestAllToolsImplemented:
 
             for name in tool_names:
                 args = sample_args.get(name, {})
-                payload = _as_json(await call_tool(name, args))
+                fn = getattr(srv, name)
+                payload = _as_json(await fn(**args))
                 assert payload["tool_name"] == name
-                assert not str(payload.get("text", "")).startswith("Unknown tool:"), name

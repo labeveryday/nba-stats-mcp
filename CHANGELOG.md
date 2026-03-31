@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-30
+
+### Changed
+- **Migrated to FastMCP** (`mcp.server.fastmcp.FastMCP`) from low-level `mcp.server.Server`
+  - Tools are now `@mcp.tool()` decorated functions with auto-generated schemas
+  - Eliminated manual `Tool()` definitions and if/elif dispatch chain
+  - ~28% reduction in server.py line count
+- **Added streamable-http and SSE transport support** via `--transport` CLI flag
+  - `nba-stats-mcp --transport streamable-http --port 8000`
+  - `nba-stats-mcp --transport sse --port 8000`
+  - stdio remains the default for backward compatibility
+- **Unified naming to `nba-stats-mcp`** across server name, logger, and repo URLs
+- Bumped `mcp` dependency minimum to `>=1.23.0`
+
+## [0.1.6] - 2026-01-03
+
 ### Added
 - **Public NBA CDN asset URLs** included in tool responses for UI clients:
   - Player headshots (1040x760 + 260x190 thumbnails)

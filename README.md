@@ -3,7 +3,7 @@
 [![PyPI version](https://badge.fury.io/py/nba-stats-mcp.svg)](https://badge.fury.io/py/nba-stats-mcp)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/labeveryday/nba_mcp_server)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/labeveryday/nba-stats-mcp)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 Access comprehensive NBA statistics via Model Context Protocol
@@ -21,8 +21,8 @@ uvx nba-stats-mcp
 pip install nba-stats-mcp
 
 # Or from source
-git clone https://github.com/labeveryday/nba_mcp_server.git
-cd nba_mcp_server
+git clone https://github.com/labeveryday/nba-stats-mcp.git
+cd nba-stats-mcp
 uv sync
 ```
 
@@ -50,7 +50,7 @@ Or if you installed from source:
       "command": "uv",
       "args": [
         "--directory",
-        "/absolute/path/to/nba_mcp_server/",
+        "/absolute/path/to/nba-stats-mcp/",
         "run",
         "nba-stats-mcp"
       ]
@@ -135,8 +135,8 @@ Tools that include these URLs:
 
 ### With uv (recommended)
 ```bash
-git clone https://github.com/labeveryday/nba_mcp_server.git
-cd nba_mcp_server
+git clone https://github.com/labeveryday/nba-stats-mcp.git
+cd nba-stats-mcp
 uv sync
 ```
 
@@ -147,8 +147,8 @@ pip install nba-stats-mcp
 
 ### From source
 ```bash
-git clone https://github.com/labeveryday/nba_mcp_server.git
-cd nba_mcp_server
+git clone https://github.com/labeveryday/nba-stats-mcp.git
+cd nba-stats-mcp
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
@@ -171,20 +171,30 @@ mcp_client = MCPClient(lambda: stdio_client(
 
 ### Running Standalone (for testing)
 ```bash
-# If installed via pip/uvx
+# If installed via pip/uvx (stdio, default)
 nba-stats-mcp
 
 # Or from source
 uv run nba-stats-mcp
 # or
 python -m nba_mcp_server
+```
 
-# or Test with MCP Inspector
-# (Inspector launches a stdio server command; it is NOT the python module name.)
+### Streamable HTTP Transport (new in v0.2.0)
+```bash
+# Run as an HTTP server instead of stdio
+nba-stats-mcp --transport streamable-http --host 127.0.0.1 --port 8000
+
+# Also supports SSE transport
+nba-stats-mcp --transport sse --port 8000
+```
+
+### MCP Inspector
+```bash
 npx @modelcontextprotocol/inspector
 # In the Inspector UI, configure a stdio server:
 # - Command: uv
-# - Args: --directory /absolute/path/to/nba_mcp_server run nba-stats-mcp
+# - Args: --directory /absolute/path/to/nba-stats-mcp run nba-stats-mcp
 #   (or Command: python, Args: -m nba_mcp_server)
 ```
 
@@ -319,7 +329,7 @@ Tip: for TestPyPI uploads, use `twine upload --repository testpypi dist/*`.
 ## Requirements
 
 - Python 3.10+
-- mcp >= 1.0.0
+- mcp >= 1.23.0
 - httpx >= 0.27.0
 
 ## License

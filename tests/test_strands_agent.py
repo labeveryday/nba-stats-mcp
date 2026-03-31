@@ -14,11 +14,18 @@ pytest.importorskip("strands.tools.mcp")
 import json
 
 from mcp import StdioServerParameters, stdio_client
+from mcp.client.session import ClientSession
 from strands.tools.mcp import MCPClient
 
 
 @pytest.mark.asyncio
 async def test_strands_mcp_client_can_list_tools_and_call_server_info():
+    # Strands' MCP adapter expects certain `mcp` client APIs.
+    # If the local `mcp` package version doesn't match what Strands expects, skip this optional test
+    # rather than failing the whole suite.
+    if not hasattr(ClientSession, "get_server_capabilities"):
+        pytest.skip("Strands/MCP version mismatch (ClientSession.get_server_capabilities missing)")
+
     mcp_client = MCPClient(
         lambda: stdio_client(
             StdioServerParameters(

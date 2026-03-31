@@ -6,18 +6,21 @@ from unittest.mock import patch
 import pytest
 from mcp.types import TextContent
 
-from nba_mcp_server.server import call_tool
+from nba_mcp_server.server import (
+    get_all_teams,
+    get_all_time_leaders,
+    get_player_info,
+    mcp,
+    resolve_player_id,
+)
 
 
 class TestNewServerV2:
     @pytest.mark.asyncio
     async def test_list_tools_parity(self):
-        from nba_mcp_server.server import list_tools
-
-        tools = await list_tools()
+        tools = await mcp.list_tools()
         assert len(tools) == 30
         tool_names = [t.name for t in tools]
-        # Spot check a few from across the suite
         for expected in (
             "get_todays_scoreboard",
             "get_box_score",
@@ -29,7 +32,7 @@ class TestNewServerV2:
 
     @pytest.mark.asyncio
     async def test_get_all_teams_returns_json_and_ids(self):
-        result = await call_tool("get_all_teams", {})
+        result = await get_all_teams()
         assert len(result) == 1
         assert isinstance(result[0], TextContent)
         payload = json.loads(result[0].text)
@@ -95,7 +98,7 @@ class TestNewServerV2:
 
         with patch("nba_mcp_server.server.fetch_nba_data") as mock_fetch:
             mock_fetch.return_value = mock_data
-            result = await call_tool("resolve_player_id", {"query": "LeBron", "limit": 5})
+            result = await resolve_player_id(query="LeBron", limit=5)
 
         payload = json.loads(result[0].text)
         assert payload["entity_type"] == "tool_result"
@@ -154,7 +157,7 @@ class TestNewServerV2:
 
         with patch("nba_mcp_server.server.fetch_nba_data") as mock_fetch:
             mock_fetch.return_value = mock_data
-            result = await call_tool("get_player_info", {"player_id": "2544"})
+            result = await get_player_info(player_id="2544")
 
         payload = json.loads(result[0].text)
         assert payload["entity_type"] == "tool_result"
@@ -165,12 +168,9 @@ class TestNewServerV2:
 
     @pytest.mark.asyncio
     async def test_fallback_tool_is_wrapped_as_json(self, sample_all_time_leaders_data):
-        # get_all_time_leaders is implemented in v1; v2 should wrap it in JSON with text + extracted entities.
         with patch("nba_mcp_server.server.fetch_nba_data") as mock_fetch:
             mock_fetch.return_value = sample_all_time_leaders_data
-            result = await call_tool(
-                "get_all_time_leaders", {"stat_category": "points", "limit": 3}
-            )
+            result = await get_all_time_leaders(stat_category="points", limit=3)
 
         payload = json.loads(result[0].text)
         assert payload["entity_type"] == "tool_result"

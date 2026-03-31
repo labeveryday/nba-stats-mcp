@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nba-stats-mcp"
-version = "0.1.5"
+version = "0.2.0"
 description = "MCP server for accessing NBA statistics and data via direct API calls"
 readme = "README.pypi.md"
 requires-python = ">=3.10"
@@ -26,15 +26,15 @@ classifiers = [
     "Topic :: Games/Entertainment",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.23.0,<2.0.0",
     "httpx>=0.27.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/labeveryday/nba_mcp_server"
-Repository = "https://github.com/labeveryday/nba_mcp_server"
-Issues = "https://github.com/labeveryday/nba_mcp_server/issues"
-Documentation = "https://github.com/labeveryday/nba_mcp_server#readme"
+Homepage = "https://github.com/labeveryday/nba-stats-mcp"
+Repository = "https://github.com/labeveryday/nba-stats-mcp"
+Issues = "https://github.com/labeveryday/nba-stats-mcp/issues"
+Documentation = "https://github.com/labeveryday/nba-stats-mcp#readme"
 
 [project.optional-dependencies]
 dev = [

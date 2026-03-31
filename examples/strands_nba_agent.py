@@ -16,7 +16,7 @@ Run:
 """
 
 import argparse
-import sys
+from pathlib import Path
 
 from mcp import StdioServerParameters, stdio_client
 from strands import Agent
@@ -43,12 +43,16 @@ def main() -> int:
     fallback_prompt = " ".join(unknown).strip()
     once_prompt = args.once or (fallback_prompt if fallback_prompt else None)
 
-    # Launch this repo's MCP server as a subprocess using the current Python interpreter.
+    # Launch this repo's MCP server as a subprocess.
+    #
+    # We use `uv --directory <repo_root> run nba-stats-mcp` so the example works reliably from a source
+    # checkout even if the package isn't installed into the active interpreter environment.
+    repo_root = Path(__file__).resolve().parents[1]
     mcp_client = MCPClient(
         lambda: stdio_client(
             StdioServerParameters(
-                command=sys.executable,
-                args=["-u", "-m", "nba_mcp_server"],
+                command="uv",
+                args=["--directory", str(repo_root), "run", "nba-stats-mcp"],
             )
         )
     )
