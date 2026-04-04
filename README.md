@@ -8,7 +8,7 @@
 
 Access comprehensive NBA statistics via Model Context Protocol
 
-A Model Context Protocol (MCP) server that provides access to live and historical NBA data including player stats, game scores, team information, and advanced analytics.
+A Model Context Protocol (MCP) server that provides access to live and historical NBA data including player stats, game scores, team information, and advanced analytics. **v0.3.0**: All 21 tools accept human names (not just IDs), return structured data + compact text, and default season to current. Optimized for both large and small LLM clients.
 
 ## Quick Start with Claude Desktop
 
@@ -73,49 +73,42 @@ Or if you installed from source:
 - "Who are the league leaders in deflections?"
 - "Show me Giannis' career awards"
 
-## Available Tools (30 total)
+## Available Tools (21 total)
 
-### Server Utilities
-- `get_server_info` - Server version + runtime settings (timeouts, retries, cache, concurrency)
-- `resolve_team_id` - Resolve team name/city/nickname → team_id
-- `resolve_player_id` - Resolve player name → player_id (official stats endpoint)
-- `find_game_id` - Find game_id by date + matchup filters
+All tools accept **human names** — no need to resolve IDs first. Every response includes structured `data` + compact `text`.
 
-### Player Stats
-- `search_players` - Find players by name
-- `get_player_info` - Player bio and details
-- `get_player_season_stats` - Current/historical season stats
-- `get_player_career_stats` - Career totals and averages
-- `get_player_game_log` - Game-by-game performance
-- `get_player_awards` - All awards and accolades
-- `get_player_hustle_stats` - Deflections, charges, loose balls, box outs
-- `get_player_defense_stats` - Opponent FG% when defended
-- `get_player_advanced_stats` - TS%, ORtg, DRtg, USG%, PIE
+### Player Tools
+- `get_player_info(player)` - Player bio and details (accepts name or ID)
+- `get_player_stats(player, stat_type)` - Season, career, game log, hustle, defense, or advanced stats
+- `get_player_awards(player)` - All awards and accolades
+- `get_shooting_data(player, data_type)` - Shot chart or shooting splits
 
-### Team Stats
-- `get_all_teams` - All 30 NBA teams
-- `get_team_roster` - Team roster
-- `get_team_advanced_stats` - Team efficiency metrics
+### Team Tools
+- `get_team_roster(team)` - Team roster (accepts team name or ID)
+- `get_team_advanced_stats(team)` - Team efficiency metrics (ORtg, DRtg, pace)
+- `get_schedule(team)` - Upcoming games
+- `get_standings()` - League standings by conference
 
-### Live Games
-- `get_todays_scoreboard` - Today's games with live scores
-- `get_scoreboard_by_date` - Games for specific date
-- `get_game_details` - Detailed game info with live stats
-- `get_box_score` - Full box score with player stats
-- `get_play_by_play` - Complete play-by-play data
-- `get_game_rotation` - Player substitution patterns
+### Game Tools
+- `get_scoreboard(date?)` - Games for a date (defaults to today)
+- `find_game(team1, team2?, date?)` - Find game_id by team matchup
+- `get_game_details(game_id)` - Live game info with team stats
+- `get_box_score(game_id)` - Full box score with player stats
+- `get_play_by_play(game_id)` - Play-by-play with timestamps
+- `get_game_rotation(game_id)` - Player rotation/substitution data
 
-### League Stats
-- `get_standings` - Current NBA standings
-- `get_league_leaders` - Statistical leaders (PTS, AST, REB, etc.)
-- `get_all_time_leaders` - All-time career leaders
-- `get_league_hustle_leaders` - League leaders in hustle stats
-- `get_schedule` - Team schedule (up to 90 days ahead)
-- `get_season_awards` - Season MVP and major awards
+### League Tools
+- `get_leaders(category, scope)` - Current season, all-time, or hustle leaders
+- `get_season_awards(season?)` - Season MVP and major awards
 
-### Shooting Analytics
-- `get_shot_chart` - Shot locations with X/Y coordinates
-- `get_shooting_splits` - Shooting % by zone and distance
+### Composite Tools (new in v0.3.0)
+- `compare_players(player1, player2)` - Side-by-side player comparison
+- `daily_summary(date?)` - All games + scores for a date
+- `team_overview(team)` - Roster + record + upcoming schedule
+
+### Resolution Tools
+- `resolve_player_id(query)` - Fuzzy match player name to ID
+- `resolve_team_id(query)` - Fuzzy match team name to ID
 
 ## Visual Assets (Public NBA CDN)
 
@@ -128,8 +121,8 @@ This MCP server also returns **public NBA CDN asset URLs** (no API key) alongsid
   - `https://cdn.nba.com/logos/nba/{teamId}/global/L/logo.svg`
 
 Tools that include these URLs:
-- **players**: `resolve_player_id`, `search_players`, `get_player_info`
-- **teams**: `resolve_team_id`, `get_all_teams`, `get_standings`
+- **players**: `resolve_player_id`, `get_player_info`, `get_player_stats`
+- **teams**: `resolve_team_id`, `get_standings`, `get_team_roster`
 
 ## Installation Options
 
@@ -198,14 +191,15 @@ npx @modelcontextprotocol/inspector
 #   (or Command: python, Args: -m nba_mcp_server)
 ```
 
-## JSON Response Format
+## JSON Response Format (v3.0)
 
 All tools return a **single JSON object** (encoded as the MCP `TextContent.text` string). The top-level schema is:
 
 - **`tool_name`**: tool that ran
 - **`arguments`**: arguments passed
-- **`text`**: human-readable summary (kept for debugging and display)
-- **`entities`**: machine-friendly IDs + asset URLs extracted from the result
+- **`text`**: compact 1-3 line summary (clean — no IDs or CDN URLs)
+- **`data`**: structured dict with all machine-readable values (primary output for programmatic use)
+- **`entities`**: extracted IDs + asset URLs for UI rendering
 
 ### Visual Assets (Public NBA CDN)
 

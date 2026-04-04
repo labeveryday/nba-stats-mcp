@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-04
+
+### Changed
+- **Name-first tools** — all tools now accept human names (e.g., `player="LeBron James"`, `team="Lakers"`) instead of requiring numeric IDs. Numeric IDs still work for backward compatibility.
+- **Consolidated from 30 → 21 tools** — reduces schema size and cognitive load for LLM clients:
+  - Merged 6 player stat tools into `get_player_stats(player, stat_type)` with `stat_type`: season, career, game_log, hustle, defense, advanced
+  - Merged 3 leader tools into `get_leaders(category, scope)` with `scope`: current_season, all_time, hustle
+  - Merged 2 scoreboard tools into `get_scoreboard(date?)`
+  - Merged 2 shot tools into `get_shooting_data(player, data_type)` with `data_type`: chart, splits
+  - Simplified `find_game_id` (6 params) → `find_game` (3 params)
+  - Removed redundant: `search_players`, `get_server_info`, `get_all_teams`
+- **Structured `data` field** in all responses — machine-readable dict alongside compact text summary
+- **Clean text output** — IDs, CDN URLs, and formatting noise stripped from `text` field (moved to `entities`)
+- **Season defaults to current** — `season: str | None = None` clearly signals optional in JSON schema
+- Schema version bumped to "3.0"
+
+### Added
+- **3 composite tools** for common multi-call patterns:
+  - `compare_players(player1, player2)` — side-by-side stats comparison
+  - `daily_summary(date?)` — all games + scores for a date
+  - `team_overview(team)` — roster + record + upcoming schedule
+- **Player name resolution cache** — 10-minute TTL, stale-on-error fallback
+- **`_clean_text()`** — centralized regex post-processor for text output
+- **`_resolve_player()` / `_resolve_team()`** — internal name-to-ID resolution helpers
+
+### Removed
+- `search_players` — redundant with `resolve_player_id`
+- `get_server_info` — debugging only, not useful for LLM queries
+- `get_all_teams` — redundant with `resolve_team_id`
+
 ## [0.2.0] - 2026-03-30
 
 ### Changed

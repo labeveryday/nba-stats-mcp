@@ -212,6 +212,7 @@ __marimo__/
 # Claude
 .claude/
 CLAUDE.md
+plans/
 PROGRESS.md
 ENDPOINT_VERIFICATION.md
 DO_NOT_USE

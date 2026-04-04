@@ -1,11 +1,10 @@
-# 🏀 NBA MCP Server
+# NBA MCP Server
 
 Access NBA statistics via the Model Context Protocol (MCP).
 
-This package runs an **MCP server** that exposes **30 NBA tools** (live scores, box scores, standings, player/team stats, play-by-play, shot charts, etc.).
-Supports **stdio**, **streamable HTTP**, and **SSE** transports. Designed for **agents and UIs** that want structured outputs.
+This package runs an **MCP server** with **21 consolidated tools** — live scores, box scores, standings, player/team stats, play-by-play, shot charts, and more. All tools accept **human names** (not just IDs), return **structured data + compact text**, and default season to current.
 
-**No API key required.**
+Supports **stdio**, **streamable HTTP**, and **SSE** transports. No API key required.
 
 ## Quick Start
 
@@ -47,62 +46,53 @@ Then configure your MCP client:
 }
 ```
 
-## What you get back (JSON + images)
+## Response Format (v3.0)
 
 All tools return **JSON** (encoded in the MCP `TextContent.text` field). Each response includes:
-- `tool_name`, `arguments`
-- `text` (a readable summary)
-- `entities` (extracted IDs + asset URLs for easy UI rendering)
+- `text` — compact 1-3 line summary (clean, no IDs or URLs)
+- `data` — structured dict with all values (primary output for programmatic use)
+- `entities` — extracted IDs + asset URLs for UI rendering
 
-Example (trimmed):
+Example:
 
 ```json
 {
-  "tool_name": "resolve_player_id",
-  "arguments": {"query": "LeBron", "limit": 5},
-  "text": "Player ID matches for 'LeBron': ...",
+  "tool_name": "get_player_stats",
+  "arguments": {"player": "LeBron James", "stat_type": "season"},
+  "text": "LeBron James 2025-26: 25.3 PPG, 7.1 RPG, 7.8 APG (51.2% FG)",
+  "data": {
+    "player_id": 2544, "name": "LeBron James", "season": "2025-26",
+    "pts": 25.3, "reb": 7.1, "ast": 7.8, "fg_pct": 0.512
+  },
   "entities": {
-    "players": [
-      {
-        "player_id": "2544",
-        "headshot_url": "https://cdn.nba.com/headshots/nba/latest/1040x760/2544.png",
-        "thumbnail_url": "https://cdn.nba.com/headshots/nba/latest/260x190/2544.png"
-      }
-    ],
-    "teams": [],
-    "games": []
+    "players": [{"player_id": "2544", "headshot_url": "https://cdn.nba.com/headshots/nba/latest/1040x760/2544.png"}]
   }
 }
 ```
-
-### Visual assets (public NBA CDN)
-
-Tool responses include public CDN URLs (no API key required):
-- Player headshots (1040x760 + 260x190 thumbnails)
-- Team logos (SVG)
 
 ## What You Can Ask
 
 - "Show me today's NBA games"
 - "What are LeBron James' stats this season?"
-- "Get the box score for Lakers vs Warriors"
+- "Compare LeBron and Curry"
+- "Give me a team overview for the Lakers"
 - "Who are the top 10 scorers this season?"
 - "Show me all-time assists leaders"
 - "When do the Celtics play next?"
-- "Get Stephen Curry's shot chart"
-- "Show me Giannis' career awards"
 
 ## Features
 
-**30 comprehensive tools** providing access to:
+**21 consolidated tools** (optimized for LLM clients):
+- All tools accept **names** — `get_player_stats(player="LeBron James")` works
+- Structured `data` field for programmatic access
+- 3 new **composite tools**: `compare_players`, `daily_summary`, `team_overview`
 - Live game scores and play-by-play
-- Player stats, career data, and awards
+- Player stats (season, career, game log, hustle, defense, advanced)
 - Team rosters and advanced metrics
-- League standings and leaders
+- League standings and leaders (current season, all-time, hustle)
 - Shot charts and shooting analytics
-- Historical NBA data
 
-📖 **[Full Documentation & Tool Reference →](https://github.com/labeveryday/nba-stats-mcp)**
+[Full Documentation & Tool Reference](https://github.com/labeveryday/nba-stats-mcp)
 
 ## Requirements
 
