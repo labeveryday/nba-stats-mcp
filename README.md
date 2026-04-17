@@ -61,6 +61,10 @@ Or if you installed from source:
 
 3. Restart Claude Desktop
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/labeveryday-nba-mcp-server).
+
 ## What You Can Ask
 
 - "Show me today's NBA games"
